@@ -32,6 +32,12 @@ const camera = {
 const enemies = [];
 const projectiles = [];
 const experienceOrbs = [];
+const enemyTypes = {
+    zombie: { health: 30, speed: 54, damage: 8, score: 10, experience: 15, radius: 13 },
+    hound: { health: 22, speed: 100, damage: 12, score: 25, experience: 20, radius: 11 },
+    mutant: { health: 90, speed: 34, damage: 18, score: 50, experience: 40, radius: 19 },
+    tyrant: { health: 350, speed: 25, damage: 25, score: 500, experience: 100, radius: 30 }
+};
 const handgun = {
     damage: 20,
     cooldown: 0.55,
@@ -79,6 +85,12 @@ let enemySpawnTimer = 0;
 let nextEnemyId = 1;
 let handgunCooldown = 0;
 let levelUpPending = false;
+let survivalTime = 0;
+let score = 0;
+let kills = 0;
+let bossesDefeated = 0;
+let lastScoredMinute = 0;
+let nextBossTime = 60;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -141,10 +153,17 @@ function startGame() {
     nextEnemyId = 1;
     handgunCooldown = 0;
     levelUpPending = false;
+    survivalTime = 0;
+    score = 0;
+    kills = 0;
+    bossesDefeated = 0;
+    lastScoredMinute = 0;
+    nextBossTime = 60;
     closeLevelUpOverlay();
     updateCamera();
     updateHealthBar();
     updateExperienceBar();
+    updateScoreboard();
     gameIsRunning = true;
     previousTime = 0;
 
@@ -170,6 +189,7 @@ function gameLoop(currentTime) {
     const deltaTime = previousTime === 0 ? 0 : Math.min((currentTime - previousTime) / 1000, 0.1);
     previousTime = currentTime;
     updatePlayer(deltaTime);
+    updateSurvival(deltaTime);
     updateEnemies(deltaTime);
     updateCombat(deltaTime);
     updateExperience(deltaTime);
@@ -221,11 +241,28 @@ function updateCamera() {
     camera.y = Math.max(0, Math.min(world.height - canvas.height, player.y - canvas.height / 2));
 }
 
+function updateSurvival(deltaTime) {
+    survivalTime += deltaTime;
+    const completedMinutes = Math.floor(survivalTime / 60);
+
+    if (completedMinutes > lastScoredMinute) {
+        score += (completedMinutes - lastScoredMinute) * 100;
+        lastScoredMinute = completedMinutes;
+    }
+
+    if (survivalTime >= nextBossTime) {
+        spawnEnemy("tyrant");
+        nextBossTime += 60;
+    }
+
+    updateScoreboard();
+}
+
 function updateEnemies(deltaTime) {
     enemySpawnTimer -= deltaTime;
     if (enemySpawnTimer <= 0) {
         spawnEnemy();
-        enemySpawnTimer = 1.8;
+        enemySpawnTimer = Math.max(0.45, 1.8 - survivalTime * 0.01);
     }
 
     player.damageCooldown = Math.max(0, player.damageCooldown - deltaTime);
@@ -250,7 +287,7 @@ function updateEnemies(deltaTime) {
     removeDefeatedEnemies();
 }
 
-function spawnEnemy() {
+function spawnEnemy(type = chooseEnemyType()) {
     const side = Math.floor(Math.random() * 4);
     const padding = 30;
     let x = player.x;
@@ -270,16 +307,34 @@ function spawnEnemy() {
         y = camera.y + canvas.height + padding;
     }
 
+    const enemyType = enemyTypes[type];
+    const difficultyMultiplier = 1 + survivalTime / 120;
     enemies.push({
         id: nextEnemyId,
+        type,
         x: Math.max(16, Math.min(world.width - 16, x)),
         y: Math.max(16, Math.min(world.height - 16, y)),
-        radius: 13,
-        speed: 54,
-        health: 30,
-        damage: 8
+        radius: enemyType.radius,
+        speed: enemyType.speed * Math.min(difficultyMultiplier, 1.8),
+        health: Math.round(enemyType.health * difficultyMultiplier),
+        maxHealth: Math.round(enemyType.health * difficultyMultiplier),
+        damage: enemyType.damage,
+        score: enemyType.score,
+        experience: enemyType.experience
     });
     nextEnemyId += 1;
+}
+
+function chooseEnemyType() {
+    const roll = Math.random();
+
+    if (survivalTime >= 40 && roll < 0.15) {
+        return "mutant";
+    }
+    if (survivalTime >= 20 && roll < 0.35) {
+        return "hound";
+    }
+    return "zombie";
 }
 
 function removeDefeatedEnemies() {
@@ -288,9 +343,15 @@ function removeDefeatedEnemies() {
             experienceOrbs.push({
                 x: enemies[index].x,
                 y: enemies[index].y,
-                value: 15
+                value: enemies[index].experience
             });
+            score += enemies[index].score;
+            kills += 1;
+            if (enemies[index].type === "tyrant") {
+                bossesDefeated += 1;
+            }
             enemies.splice(index, 1);
+            updateScoreboard();
         }
     }
 }
@@ -451,12 +512,22 @@ function updateHealthBar() {
     healthValue.textContent = `${player.health}/${player.maxHealth}`;
 }
 
+function updateScoreboard() {
+    const minutes = Math.floor(survivalTime / 60);
+    const seconds = Math.floor(survivalTime % 60);
+    document.querySelector("#survival-time").textContent =
+        `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    document.querySelector("#score-value").textContent = String(score).padStart(6, "0");
+    document.querySelector("#kills-value").textContent = String(kills).padStart(3, "0");
+    document.querySelector("#bosses-value").textContent = String(bossesDefeated).padStart(2, "0");
+}
+
 function drawGame() {
     context.save();
     context.translate(-camera.x, -camera.y);
     drawUrbanEnvironment();
     experienceOrbs.forEach(drawExperienceOrb);
-    enemies.forEach(drawZombie);
+    enemies.forEach(drawEnemy);
     projectiles.forEach(drawProjectile);
     drawPlayer();
     context.restore();
@@ -569,10 +640,30 @@ function drawPlayer() {
     context.fillRect(x + 8, y - 1, 8, 5);
 }
 
-function drawZombie(enemy) {
+function drawEnemy(enemy) {
     const { x, y } = enemy;
     context.fillStyle = "rgba(0, 0, 0, 0.35)";
-    context.fillRect(x - 11, y + 13, 22, 5);
+    context.fillRect(x - enemy.radius, y + enemy.radius - 1, enemy.radius * 2, 5);
+
+    if (enemy.type === "hound") {
+        context.fillStyle = "#66745d";
+        context.fillRect(x - 13, y - 7, 26, 12);
+        context.fillStyle = "#a8a27a";
+        context.fillRect(x + 10, y - 5, 5, 4);
+        return;
+    }
+
+    if (enemy.type === "mutant" || enemy.type === "tyrant") {
+        context.fillStyle = enemy.type === "tyrant" ? "#713b45" : "#596b56";
+        context.fillRect(x - enemy.radius, y - enemy.radius, enemy.radius * 2, enemy.radius * 2);
+        context.fillStyle = "#b64c3c";
+        context.fillRect(x - 5, y - 5, 10, 7);
+        context.fillStyle = "#202a20";
+        context.fillRect(x - enemy.radius + 5, y + enemy.radius - 1, 8, 8);
+        context.fillRect(x + enemy.radius - 13, y + enemy.radius - 1, 8, 8);
+        return;
+    }
+
     context.fillStyle = "#74816a";
     context.fillRect(x - 8, y - 12, 16, 11);
     context.fillStyle = "#a8a27a";
@@ -621,6 +712,8 @@ window.addEventListener("resize", () => {
 
 updateCamera();
 updateHealthBar();
+updateExperienceBar();
+updateScoreboard();
 drawGame();
 
 navigationButtons.forEach((button) => {
