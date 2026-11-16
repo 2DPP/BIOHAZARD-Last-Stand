@@ -26,12 +26,20 @@ const camera = {
     y: 0
 };
 const enemies = [];
+const projectiles = [];
+const handgun = {
+    damage: 20,
+    cooldown: 0.55,
+    range: 560,
+    projectileSpeed: 520
+};
 
 let animationFrameId = null;
 let previousTime = 0;
 let gameIsRunning = false;
 let enemySpawnTimer = 0;
 let nextEnemyId = 1;
+let handgunCooldown = 0;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -80,8 +88,10 @@ function startGame() {
     player.health = player.maxHealth;
     player.damageCooldown = 0;
     enemies.length = 0;
+    projectiles.length = 0;
     enemySpawnTimer = 0;
     nextEnemyId = 1;
+    handgunCooldown = 0;
     updateCamera();
     updateHealthBar();
     gameIsRunning = true;
@@ -110,6 +120,7 @@ function gameLoop(currentTime) {
     previousTime = currentTime;
     updatePlayer(deltaTime);
     updateEnemies(deltaTime);
+    updateCombat(deltaTime);
     drawGame();
     animationFrameId = requestAnimationFrame(gameLoop);
 }
@@ -221,6 +232,77 @@ function removeDefeatedEnemies() {
     }
 }
 
+function updateCombat(deltaTime) {
+    handgunCooldown = Math.max(0, handgunCooldown - deltaTime);
+    if (handgunCooldown === 0) {
+        const target = findNearestEnemy();
+        if (target !== null) {
+            fireHandgun(target);
+            handgunCooldown = handgun.cooldown;
+        }
+    }
+
+    projectiles.forEach((projectile) => {
+        projectile.x += projectile.velocityX * deltaTime;
+        projectile.y += projectile.velocityY * deltaTime;
+        projectile.life -= deltaTime;
+
+        enemies.forEach((enemy) => {
+            const distanceX = projectile.x - enemy.x;
+            const distanceY = projectile.y - enemy.y;
+            const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+
+            if (!projectile.hit && distance < projectile.radius + enemy.radius) {
+                enemy.health -= projectile.damage;
+                projectile.hit = true;
+            }
+        });
+    });
+
+    for (let index = projectiles.length - 1; index >= 0; index -= 1) {
+        if (projectiles[index].life <= 0 || projectiles[index].hit) {
+            projectiles.splice(index, 1);
+        }
+    }
+
+    removeDefeatedEnemies();
+}
+
+function findNearestEnemy() {
+    let nearestEnemy = null;
+    let nearestDistance = handgun.range;
+
+    enemies.forEach((enemy) => {
+        const distanceX = player.x - enemy.x;
+        const distanceY = player.y - enemy.y;
+        const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+
+        if (distance < nearestDistance) {
+            nearestEnemy = enemy;
+            nearestDistance = distance;
+        }
+    });
+
+    return nearestEnemy;
+}
+
+function fireHandgun(target) {
+    const distanceX = target.x - player.x;
+    const distanceY = target.y - player.y;
+    const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+
+    projectiles.push({
+        x: player.x,
+        y: player.y,
+        radius: 4,
+        damage: handgun.damage,
+        velocityX: (distanceX / distance) * handgun.projectileSpeed,
+        velocityY: (distanceY / distance) * handgun.projectileSpeed,
+        life: handgun.range / handgun.projectileSpeed,
+        hit: false
+    });
+}
+
 function updateHealthBar() {
     const healthBar = document.querySelector("#health-bar");
     const healthValue = document.querySelector("#health-value");
@@ -234,6 +316,7 @@ function drawGame() {
     context.translate(-camera.x, -camera.y);
     drawUrbanEnvironment();
     enemies.forEach(drawZombie);
+    projectiles.forEach(drawProjectile);
     drawPlayer();
     context.restore();
 }
@@ -354,6 +437,16 @@ function drawZombie(enemy) {
     context.fillStyle = "#202a20";
     context.fillRect(x - 8, y + 18, 6, 6);
     context.fillRect(x + 2, y + 18, 6, 6);
+}
+
+function drawProjectile(projectile) {
+    context.fillStyle = "#e0c779";
+    context.fillRect(
+        projectile.x - projectile.radius,
+        projectile.y - projectile.radius,
+        projectile.radius * 2,
+        projectile.radius * 2
+    );
 }
 
 window.addEventListener("keydown", (event) => {
