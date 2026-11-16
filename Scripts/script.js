@@ -19,7 +19,11 @@ const player = {
     speed: 220,
     maxHealth: 100,
     health: 100,
-    damageCooldown: 0
+    damageCooldown: 0,
+    level: 1,
+    experience: 0,
+    experienceToNextLevel: 40,
+    pickupRange: 90
 };
 const camera = {
     x: 0,
@@ -27,12 +31,46 @@ const camera = {
 };
 const enemies = [];
 const projectiles = [];
+const experienceOrbs = [];
 const handgun = {
     damage: 20,
     cooldown: 0.55,
     range: 560,
-    projectileSpeed: 520
+    projectileSpeed: 520,
+    projectileCount: 1
 };
+const upgrades = [
+    {
+        name: "Reinforced Rounds",
+        description: "Increase handgun damage by 8.",
+        apply: () => { handgun.damage += 8; }
+    },
+    {
+        name: "Quick Trigger",
+        description: "Fire the handgun 15% faster.",
+        apply: () => { handgun.cooldown = Math.max(0.18, handgun.cooldown * 0.85); }
+    },
+    {
+        name: "Field Medic",
+        description: "Recover 25 health immediately.",
+        apply: () => { player.health = Math.min(player.maxHealth, player.health + 25); }
+    },
+    {
+        name: "Combat Training",
+        description: "Increase movement speed by 25.",
+        apply: () => { player.speed += 25; }
+    },
+    {
+        name: "Expanded Magazine",
+        description: "Fire one additional handgun projectile.",
+        apply: () => { handgun.projectileCount += 1; }
+    },
+    {
+        name: "Scavenger",
+        description: "Increase experience pickup range by 35.",
+        apply: () => { player.pickupRange += 35; }
+    }
+];
 
 let animationFrameId = null;
 let previousTime = 0;
@@ -40,6 +78,7 @@ let gameIsRunning = false;
 let enemySpawnTimer = 0;
 let nextEnemyId = 1;
 let handgunCooldown = 0;
+let levelUpPending = false;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -87,13 +126,25 @@ function startGame() {
     player.y = world.height / 2;
     player.health = player.maxHealth;
     player.damageCooldown = 0;
+    player.level = 1;
+    player.experience = 0;
+    player.experienceToNextLevel = 40;
+    player.pickupRange = 90;
+    player.speed = 220;
+    handgun.damage = 20;
+    handgun.cooldown = 0.55;
+    handgun.projectileCount = 1;
     enemies.length = 0;
     projectiles.length = 0;
+    experienceOrbs.length = 0;
     enemySpawnTimer = 0;
     nextEnemyId = 1;
     handgunCooldown = 0;
+    levelUpPending = false;
+    closeLevelUpOverlay();
     updateCamera();
     updateHealthBar();
+    updateExperienceBar();
     gameIsRunning = true;
     previousTime = 0;
 
@@ -121,7 +172,14 @@ function gameLoop(currentTime) {
     updatePlayer(deltaTime);
     updateEnemies(deltaTime);
     updateCombat(deltaTime);
+    updateExperience(deltaTime);
     drawGame();
+
+    if (!gameIsRunning) {
+        animationFrameId = null;
+        return;
+    }
+
     animationFrameId = requestAnimationFrame(gameLoop);
 }
 
@@ -227,6 +285,11 @@ function spawnEnemy() {
 function removeDefeatedEnemies() {
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
         if (enemies[index].health <= 0) {
+            experienceOrbs.push({
+                x: enemies[index].x,
+                y: enemies[index].y,
+                value: 15
+            });
             enemies.splice(index, 1);
         }
     }
@@ -291,16 +354,93 @@ function fireHandgun(target) {
     const distanceY = target.y - player.y;
     const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
 
-    projectiles.push({
-        x: player.x,
-        y: player.y,
-        radius: 4,
-        damage: handgun.damage,
-        velocityX: (distanceX / distance) * handgun.projectileSpeed,
-        velocityY: (distanceY / distance) * handgun.projectileSpeed,
-        life: handgun.range / handgun.projectileSpeed,
-        hit: false
+    for (let index = 0; index < handgun.projectileCount; index += 1) {
+        const spread = (index - (handgun.projectileCount - 1) / 2) * 0.12;
+        const angle = Math.atan2(distanceY, distanceX) + spread;
+        projectiles.push({
+            x: player.x,
+            y: player.y,
+            radius: 4,
+            damage: handgun.damage,
+            velocityX: Math.cos(angle) * handgun.projectileSpeed,
+            velocityY: Math.sin(angle) * handgun.projectileSpeed,
+            life: handgun.range / handgun.projectileSpeed,
+            hit: false
+        });
+    }
+}
+
+function updateExperience() {
+    for (let index = experienceOrbs.length - 1; index >= 0; index -= 1) {
+        const orb = experienceOrbs[index];
+        const distanceX = player.x - orb.x;
+        const distanceY = player.y - orb.y;
+        const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+
+        if (distance <= player.pickupRange) {
+            player.experience += orb.value;
+            experienceOrbs.splice(index, 1);
+        }
+    }
+
+    if (player.experience >= player.experienceToNextLevel) {
+        player.experience -= player.experienceToNextLevel;
+        player.level += 1;
+        player.experienceToNextLevel = Math.floor(player.experienceToNextLevel * 1.35);
+        openLevelUpOverlay();
+    }
+
+    updateExperienceBar();
+}
+
+function updateExperienceBar() {
+    const experienceBar = document.querySelector("#experience-bar");
+    const levelValue = document.querySelector("#level-value");
+    const experienceValue = document.querySelector("#experience-value");
+    const experiencePercent = (player.experience / player.experienceToNextLevel) * 100;
+    experienceBar.style.width = `${experiencePercent}%`;
+    levelValue.textContent = String(player.level).padStart(2, "0");
+    experienceValue.textContent = `${player.experience}/${player.experienceToNextLevel}`;
+}
+
+function openLevelUpOverlay() {
+    if (levelUpPending) {
+        return;
+    }
+
+    levelUpPending = true;
+    gameIsRunning = false;
+    renderUpgradeChoices();
+    document.querySelector("#level-up-overlay").hidden = false;
+}
+
+function closeLevelUpOverlay() {
+    levelUpPending = false;
+    document.querySelector("#level-up-overlay").hidden = true;
+}
+
+function renderUpgradeChoices() {
+    const upgradeOptions = document.querySelector("#upgrade-options");
+    upgradeOptions.replaceChildren();
+
+    getRandomUpgrades(3).forEach((upgrade) => {
+        const option = document.createElement("button");
+        option.className = "upgrade-option";
+        option.innerHTML = `<strong>${upgrade.name}</strong><span>${upgrade.description}</span>`;
+        option.addEventListener("click", () => {
+            upgrade.apply();
+            updateHealthBar();
+            closeLevelUpOverlay();
+            gameIsRunning = true;
+            previousTime = 0;
+            animationFrameId = requestAnimationFrame(gameLoop);
+        });
+        upgradeOptions.appendChild(option);
     });
+}
+
+function getRandomUpgrades(amount) {
+    return [...upgrades].sort(() => Math.random() - 0.5).slice(0, amount);
 }
 
 function updateHealthBar() {
@@ -315,10 +455,18 @@ function drawGame() {
     context.save();
     context.translate(-camera.x, -camera.y);
     drawUrbanEnvironment();
+    experienceOrbs.forEach(drawExperienceOrb);
     enemies.forEach(drawZombie);
     projectiles.forEach(drawProjectile);
     drawPlayer();
     context.restore();
+}
+
+function drawExperienceOrb(orb) {
+    context.fillStyle = "#7ec2a0";
+    context.fillRect(orb.x - 4, orb.y - 4, 8, 8);
+    context.fillStyle = "#c4e6ad";
+    context.fillRect(orb.x - 2, orb.y - 2, 4, 4);
 }
 
 function drawUrbanEnvironment() {

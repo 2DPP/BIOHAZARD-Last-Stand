@@ -294,6 +294,34 @@ h1 span {
     font-weight: 400;
 }
 
+.experience-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 0.65rem;
+}
+
+.experience-track {
+    width: 120px;
+    height: 7px;
+    border: 1px solid var(--line);
+    background: #080b0a;
+}
+
+.experience-bar {
+    width: 0;
+    height: 100%;
+    background: #7ec2a0;
+    transition: width 150ms ease;
+}
+
+.experience-status strong {
+    color: var(--text);
+    font-weight: 400;
+}
+
 .hud-stat {
     min-width: 90px;
 }
@@ -342,6 +370,65 @@ h1 span {
     color: #67745e;
 }
 
+.level-up-overlay {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 18px;
+    padding: 24px;
+    background: rgba(8, 11, 10, 0.9);
+    text-align: center;
+}
+
+.level-up-overlay[hidden] {
+    display: none;
+}
+
+.level-up-overlay h2 {
+    color: var(--bright-accent);
+    font: 2.8rem "VT323", monospace;
+    text-transform: uppercase;
+}
+
+.upgrade-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    width: min(100%, 720px);
+}
+
+.upgrade-option {
+    display: grid;
+    gap: 12px;
+    min-height: 120px;
+    border: 1px solid var(--line);
+    padding: 16px;
+    background: rgba(22, 32, 25, 0.95);
+    cursor: pointer;
+    text-align: left;
+}
+
+.upgrade-option:hover,
+.upgrade-option:focus-visible {
+    border-color: var(--bright-accent);
+    background: rgba(105, 35, 29, 0.55);
+    outline: none;
+}
+
+.upgrade-option strong {
+    color: var(--text);
+    font: 1.65rem "VT323", monospace;
+    text-transform: uppercase;
+}
+
+.upgrade-option span {
+    color: #aeb39b;
+    font-size: 0.72rem;
+    line-height: 1.5;
+}
+
 .gameplay-footer {
     justify-content: space-between;
     color: var(--muted);
@@ -378,6 +465,15 @@ h1 span {
 
     .hud h2 {
         width: 100%;
+    }
+
+    .upgrade-options {
+        grid-template-columns: 1fr;
+        width: min(100%, 280px);
+    }
+
+    .upgrade-option {
+        min-height: auto;
     }
 }
 

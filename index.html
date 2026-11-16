@@ -72,16 +72,28 @@
                         </div>
                         <strong id="health-value">100/100</strong>
                     </div>
+                    <div class="experience-status">
+                        <span>XP</span>
+                        <div class="experience-track" aria-label="Experience progress">
+                            <div id="experience-bar" class="experience-bar"></div>
+                        </div>
+                        <strong id="experience-value">0/40</strong>
+                    </div>
                 </div>
                 <div class="hud-stat"><span>TIME</span><strong>00:00</strong></div>
                 <div class="hud-stat"><span>SCORE</span><strong>000000</strong></div>
-                <div class="hud-stat"><span>LEVEL</span><strong>01</strong></div>
+                <div class="hud-stat"><span>LEVEL</span><strong id="level-value">01</strong></div>
             </header>
             <div class="canvas-frame">
                 <canvas id="game-canvas" width="960" height="540" aria-label="Gameplay area"></canvas>
                 <div class="canvas-message">
                     <span>WASD / ARROWS TO MOVE</span>
-                    <small>PHASE 4 // HANDGUN ACTIVE</small>
+                    <small>PHASE 5 // COLLECT XP AND UPGRADE</small>
+                </div>
+                <div id="level-up-overlay" class="level-up-overlay" hidden>
+                    <p class="eyebrow">SURVIVOR LEVEL INCREASED</p>
+                    <h2>Choose an Upgrade</h2>
+                    <div id="upgrade-options" class="upgrade-options"></div>
                 </div>
             </div>
             <div class="gameplay-footer">
