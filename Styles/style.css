@@ -34,6 +34,7 @@ button {
 
 .game-shell {
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     background:
         radial-gradient(circle at 50% 40%, rgba(52, 73, 52, 0.2), transparent 46%),
@@ -43,6 +44,7 @@ button {
 
 .screen {
     height: 100vh;
+    height: 100dvh;
     min-height: 0;
 }
 
@@ -238,6 +240,8 @@ h1 span {
 .gameplay-screen {
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     padding: 18px;
 }
@@ -247,6 +251,7 @@ h1 span {
     display: flex;
     align-items: center;
     gap: 24px;
+    flex: 0 0 auto;
 }
 
 .hud {
@@ -279,11 +284,12 @@ h1 span {
 .canvas-frame {
     position: relative;
     display: grid;
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
     margin: 18px 0;
     border: 1px solid var(--line);
     background: var(--deep-green);
+    overflow: hidden;
 }
 
 #game-canvas {
