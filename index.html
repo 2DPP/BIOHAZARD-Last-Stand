@@ -19,7 +19,7 @@
                 <button class="menu-button" data-screen="instructions">Instructions</button>
                 <button class="menu-button" data-screen="high-scores">High Scores</button>
             </nav>
-            <p class="version">BUILD 02 // PHASE TWO</p>
+            <p class="version">BUILD 08 // FINAL POLISH</p>
         </section>
 
         <section id="instructions" class="screen panel-screen" aria-labelledby="instructions-title" hidden>
@@ -60,6 +60,25 @@
             </div>
         </section>
 
+        <section id="game-over" class="screen panel-screen" aria-labelledby="game-over-title" hidden>
+            <div class="panel game-over-panel">
+                <p class="eyebrow">SIGNAL LOST // RUN TERMINATED</p>
+                <h2 id="game-over-title">You Were Overrun</h2>
+                <div class="final-stats">
+                    <div><span>FINAL SCORE</span><strong id="final-score">000000</strong></div>
+                    <div><span>SURVIVAL TIME</span><strong id="final-time">00:00</strong></div>
+                    <div><span>INFECTED KILLED</span><strong id="final-kills">000</strong></div>
+                    <div><span>LEVEL REACHED</span><strong id="final-level">01</strong></div>
+                    <div><span>BOSSES DEFEATED</span><strong id="final-bosses">00</strong></div>
+                    <div><span>PERSONAL BEST</span><strong id="personal-best-value">000000</strong></div>
+                </div>
+                <div class="menu-buttons game-over-buttons">
+                    <button class="menu-button menu-button--primary" data-screen="gameplay">Restart Game</button>
+                    <button class="menu-button" data-screen="main-menu">Main Menu</button>
+                </div>
+            </div>
+        </section>
+
         <section id="gameplay" class="screen gameplay-screen" aria-labelledby="gameplay-title" hidden>
             <header class="hud">
                 <div>
@@ -90,7 +109,7 @@
                 <canvas id="game-canvas" width="960" height="540" aria-label="Gameplay area"></canvas>
                 <div class="canvas-message">
                     <span>WASD / ARROWS TO MOVE</span>
-                    <small>PHASE 6 // SURVIVE THE OUTBREAK</small>
+                    <small>PHASE 8 // FINAL POLISH BUILD</small>
                 </div>
                 <div id="level-up-overlay" class="level-up-overlay" hidden>
                     <p class="eyebrow">SURVIVOR LEVEL INCREASED</p>

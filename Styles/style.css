@@ -237,6 +237,40 @@ h1 span {
     text-align: center;
 }
 
+.game-over-panel h2 {
+    margin-bottom: 28px;
+}
+
+.final-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    border: 1px solid var(--line);
+    margin-bottom: 30px;
+    background: var(--line);
+}
+
+.final-stats div {
+    display: grid;
+    gap: 5px;
+    padding: 14px;
+    background: var(--panel);
+}
+
+.final-stats span {
+    color: var(--muted);
+    font-size: 0.65rem;
+}
+
+.final-stats strong {
+    color: var(--text);
+    font: 1.8rem "VT323", monospace;
+}
+
+.game-over-buttons {
+    width: 100%;
+}
+
 .gameplay-screen {
     display: flex;
     flex-direction: column;
@@ -467,6 +501,10 @@ h1 span {
         width: 100%;
     }
 
+    .final-stats {
+        grid-template-columns: 1fr;
+    }
+
     .upgrade-options {
         grid-template-columns: 1fr;
         width: min(100%, 280px);
@@ -474,6 +512,20 @@ h1 span {
 
     .upgrade-option {
         min-height: auto;
+    }
+}
+
+@media (max-height: 700px) and (min-width: 601px) {
+    .gameplay-screen {
+        padding: 10px;
+    }
+
+    .hud {
+        padding-bottom: 8px;
+    }
+
+    .canvas-frame {
+        margin: 10px 0;
     }
 }
 

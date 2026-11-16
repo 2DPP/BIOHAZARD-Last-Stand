@@ -23,7 +23,8 @@ const player = {
     level: 1,
     experience: 0,
     experienceToNextLevel: 40,
-    pickupRange: 90
+    pickupRange: 90,
+    isMoving: false
 };
 const camera = {
     x: 0,
@@ -32,6 +33,7 @@ const camera = {
 const enemies = [];
 const projectiles = [];
 const experienceOrbs = [];
+const impactEffects = [];
 const enemyTypes = {
     zombie: { health: 30, speed: 54, damage: 8, score: 10, experience: 15, radius: 13 },
     hound: { health: 22, speed: 100, damage: 12, score: 25, experience: 20, radius: 11 },
@@ -91,6 +93,7 @@ let kills = 0;
 let bossesDefeated = 0;
 let lastScoredMinute = 0;
 let nextBossTime = 60;
+let visualTime = 0;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -122,15 +125,32 @@ function showScreen(screenId) {
 }
 
 function displayHighScore() {
-    let savedScore = 0;
+    highScoreValue.textContent = formatScore(getSavedHighScore());
+}
 
+function getSavedHighScore() {
     try {
-        savedScore = Number.parseInt(localStorage.getItem("biohazardHighScore") || "0", 10);
+        return Number.parseInt(localStorage.getItem("biohazardHighScore") || "0", 10);
     } catch (error) {
         console.warn("High scores are unavailable in this browser context.", error);
+        return 0;
+    }
+}
+
+function saveHighScore() {
+    const personalBest = Math.max(score, getSavedHighScore());
+
+    try {
+        localStorage.setItem("biohazardHighScore", String(personalBest));
+    } catch (error) {
+        console.warn("High score could not be saved in this browser context.", error);
     }
 
-    highScoreValue.textContent = String(savedScore).padStart(6, "0");
+    return personalBest;
+}
+
+function formatScore(value) {
+    return String(value).padStart(6, "0");
 }
 
 function startGame() {
@@ -149,6 +169,7 @@ function startGame() {
     enemies.length = 0;
     projectiles.length = 0;
     experienceOrbs.length = 0;
+    impactEffects.length = 0;
     enemySpawnTimer = 0;
     nextEnemyId = 1;
     handgunCooldown = 0;
@@ -159,6 +180,7 @@ function startGame() {
     bossesDefeated = 0;
     lastScoredMinute = 0;
     nextBossTime = 60;
+    visualTime = 0;
     closeLevelUpOverlay();
     updateCamera();
     updateHealthBar();
@@ -188,9 +210,14 @@ function gameLoop(currentTime) {
 
     const deltaTime = previousTime === 0 ? 0 : Math.min((currentTime - previousTime) / 1000, 0.1);
     previousTime = currentTime;
+    visualTime += deltaTime;
     updatePlayer(deltaTime);
     updateSurvival(deltaTime);
     updateEnemies(deltaTime);
+    if (!gameIsRunning) {
+        animationFrameId = null;
+        return;
+    }
     updateCombat(deltaTime);
     updateExperience(deltaTime);
     drawGame();
@@ -226,6 +253,7 @@ function updatePlayer(deltaTime) {
         verticalDirection /= diagonalLength;
     }
 
+    player.isMoving = horizontalDirection !== 0 || verticalDirection !== 0;
     player.x += horizontalDirection * player.speed * deltaTime;
     player.y += verticalDirection * player.speed * deltaTime;
 
@@ -281,6 +309,11 @@ function updateEnemies(deltaTime) {
             player.health = Math.max(0, player.health - enemy.damage);
             player.damageCooldown = 0.75;
             updateHealthBar();
+
+            if (player.health === 0) {
+                finishGame();
+                return;
+            }
         }
     });
 
@@ -379,6 +412,7 @@ function updateCombat(deltaTime) {
             if (!projectile.hit && distance < projectile.radius + enemy.radius) {
                 enemy.health -= projectile.damage;
                 projectile.hit = true;
+                impactEffects.push({ x: enemy.x, y: enemy.y, life: 0.16 });
             }
         });
     });
@@ -386,6 +420,15 @@ function updateCombat(deltaTime) {
     for (let index = projectiles.length - 1; index >= 0; index -= 1) {
         if (projectiles[index].life <= 0 || projectiles[index].hit) {
             projectiles.splice(index, 1);
+        }
+    }
+
+    impactEffects.forEach((effect) => {
+        effect.life -= deltaTime;
+    });
+    for (let index = impactEffects.length - 1; index >= 0; index -= 1) {
+        if (impactEffects[index].life <= 0) {
+            impactEffects.splice(index, 1);
         }
     }
 
@@ -512,11 +555,26 @@ function updateHealthBar() {
     healthValue.textContent = `${player.health}/${player.maxHealth}`;
 }
 
-function updateScoreboard() {
+function finishGame() {
+    gameIsRunning = false;
+    const personalBest = saveHighScore();
+    document.querySelector("#final-score").textContent = formatScore(score);
+    document.querySelector("#final-time").textContent = formatSurvivalTime();
+    document.querySelector("#final-kills").textContent = String(kills).padStart(3, "0");
+    document.querySelector("#final-level").textContent = String(player.level).padStart(2, "0");
+    document.querySelector("#final-bosses").textContent = String(bossesDefeated).padStart(2, "0");
+    document.querySelector("#personal-best-value").textContent = formatScore(personalBest);
+    showScreen("game-over");
+}
+
+function formatSurvivalTime() {
     const minutes = Math.floor(survivalTime / 60);
     const seconds = Math.floor(survivalTime % 60);
-    document.querySelector("#survival-time").textContent =
-        `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function updateScoreboard() {
+    document.querySelector("#survival-time").textContent = formatSurvivalTime();
     document.querySelector("#score-value").textContent = String(score).padStart(6, "0");
     document.querySelector("#kills-value").textContent = String(kills).padStart(3, "0");
     document.querySelector("#bosses-value").textContent = String(bossesDefeated).padStart(2, "0");
@@ -529,15 +587,24 @@ function drawGame() {
     experienceOrbs.forEach(drawExperienceOrb);
     enemies.forEach(drawEnemy);
     projectiles.forEach(drawProjectile);
+    impactEffects.forEach(drawImpactEffect);
     drawPlayer();
     context.restore();
 }
 
 function drawExperienceOrb(orb) {
+    const pulse = Math.sin(visualTime * 8 + orb.x) * 1.5;
     context.fillStyle = "#7ec2a0";
-    context.fillRect(orb.x - 4, orb.y - 4, 8, 8);
+    context.fillRect(orb.x - 4 - pulse / 2, orb.y - 4 - pulse / 2, 8 + pulse, 8 + pulse);
     context.fillStyle = "#c4e6ad";
     context.fillRect(orb.x - 2, orb.y - 2, 4, 4);
+}
+
+function drawImpactEffect(effect) {
+    const radius = (1 - effect.life / 0.16) * 12;
+    context.strokeStyle = `rgba(239, 92, 76, ${effect.life / 0.16})`;
+    context.lineWidth = 2;
+    context.strokeRect(effect.x - radius, effect.y - radius, radius * 2, radius * 2);
 }
 
 function drawUrbanEnvironment() {
@@ -625,19 +692,25 @@ function drawDebris(x, y) {
 
 function drawPlayer() {
     const { x, y, width, height } = player;
+    const bob = player.isMoving ? Math.sin(visualTime * 12) * 2 : 0;
+    const flash = player.damageCooldown > 0.55;
     context.fillStyle = "rgba(0, 0, 0, 0.35)";
     context.fillRect(x - width / 2 - 3, y + height / 2 - 1, width + 6, 5);
+    if (flash) {
+        context.fillStyle = "rgba(239, 92, 76, 0.75)";
+        context.fillRect(x - 13, y - 17 + bob, 26, 38);
+    }
     context.fillStyle = "#c8c59d";
-    context.fillRect(x - 6, y - 13, 12, 9);
+    context.fillRect(x - 6, y - 13 + bob, 12, 9);
     context.fillStyle = "#63745c";
-    context.fillRect(x - 9, y - 4, 18, 19);
+    context.fillRect(x - 9, y - 4 + bob, 18, 19);
     context.fillStyle = "#9b3b32";
-    context.fillRect(x - 9, y + 8, 18, 5);
+    context.fillRect(x - 9, y + 8 + bob, 18, 5);
     context.fillStyle = "#1b211a";
-    context.fillRect(x - 8, y + 15, 6, 7);
-    context.fillRect(x + 2, y + 15, 6, 7);
+    context.fillRect(x - 8, y + 15 + bob, 6, 7);
+    context.fillRect(x + 2, y + 15 + bob, 6, 7);
     context.fillStyle = "#c8c59d";
-    context.fillRect(x + 8, y - 1, 8, 5);
+    context.fillRect(x + 8, y - 1 + bob, 8, 5);
 }
 
 function drawEnemy(enemy) {
