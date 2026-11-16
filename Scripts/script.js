@@ -7,17 +7,31 @@ const canvas = document.querySelector("#game-canvas");
 const context = canvas.getContext("2d");
 
 const keys = new Set();
+const world = {
+    width: 3200,
+    height: 2200
+};
 const player = {
-    x: canvas.width / 2,
-    y: canvas.height / 2,
+    x: world.width / 2,
+    y: world.height / 2,
     width: 18,
     height: 24,
-    speed: 220
+    speed: 220,
+    maxHealth: 100,
+    health: 100,
+    damageCooldown: 0
 };
+const camera = {
+    x: 0,
+    y: 0
+};
+const enemies = [];
 
 let animationFrameId = null;
 let previousTime = 0;
 let gameIsRunning = false;
+let enemySpawnTimer = 0;
+let nextEnemyId = 1;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -61,8 +75,15 @@ function displayHighScore() {
 }
 
 function startGame() {
-    player.x = canvas.width / 2;
-    player.y = canvas.height / 2;
+    player.x = world.width / 2;
+    player.y = world.height / 2;
+    player.health = player.maxHealth;
+    player.damageCooldown = 0;
+    enemies.length = 0;
+    enemySpawnTimer = 0;
+    nextEnemyId = 1;
+    updateCamera();
+    updateHealthBar();
     gameIsRunning = true;
     previousTime = 0;
 
@@ -88,6 +109,7 @@ function gameLoop(currentTime) {
     const deltaTime = previousTime === 0 ? 0 : Math.min((currentTime - previousTime) / 1000, 0.1);
     previousTime = currentTime;
     updatePlayer(deltaTime);
+    updateEnemies(deltaTime);
     drawGame();
     animationFrameId = requestAnimationFrame(gameLoop);
 }
@@ -120,17 +142,104 @@ function updatePlayer(deltaTime) {
 
     const halfWidth = player.width / 2;
     const halfHeight = player.height / 2;
-    player.x = Math.max(halfWidth, Math.min(canvas.width - halfWidth, player.x));
-    player.y = Math.max(halfHeight, Math.min(canvas.height - halfHeight, player.y));
+    player.x = Math.max(halfWidth, Math.min(world.width - halfWidth, player.x));
+    player.y = Math.max(halfHeight, Math.min(world.height - halfHeight, player.y));
+    updateCamera();
+}
+
+function updateCamera() {
+    camera.x = Math.max(0, Math.min(world.width - canvas.width, player.x - canvas.width / 2));
+    camera.y = Math.max(0, Math.min(world.height - canvas.height, player.y - canvas.height / 2));
+}
+
+function updateEnemies(deltaTime) {
+    enemySpawnTimer -= deltaTime;
+    if (enemySpawnTimer <= 0) {
+        spawnEnemy();
+        enemySpawnTimer = 1.8;
+    }
+
+    player.damageCooldown = Math.max(0, player.damageCooldown - deltaTime);
+
+    enemies.forEach((enemy) => {
+        const distanceX = player.x - enemy.x;
+        const distanceY = player.y - enemy.y;
+        const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+
+        if (distance > 0) {
+            enemy.x += (distanceX / distance) * enemy.speed * deltaTime;
+            enemy.y += (distanceY / distance) * enemy.speed * deltaTime;
+        }
+
+        if (distance < enemy.radius + player.width / 2 && player.damageCooldown === 0) {
+            player.health = Math.max(0, player.health - enemy.damage);
+            player.damageCooldown = 0.75;
+            updateHealthBar();
+        }
+    });
+
+    removeDefeatedEnemies();
+}
+
+function spawnEnemy() {
+    const side = Math.floor(Math.random() * 4);
+    const padding = 30;
+    let x = player.x;
+    let y = player.y;
+
+    if (side === 0) {
+        x = camera.x - padding;
+        y = camera.y + Math.random() * canvas.height;
+    } else if (side === 1) {
+        x = camera.x + canvas.width + padding;
+        y = camera.y + Math.random() * canvas.height;
+    } else if (side === 2) {
+        x = camera.x + Math.random() * canvas.width;
+        y = camera.y - padding;
+    } else {
+        x = camera.x + Math.random() * canvas.width;
+        y = camera.y + canvas.height + padding;
+    }
+
+    enemies.push({
+        id: nextEnemyId,
+        x: Math.max(16, Math.min(world.width - 16, x)),
+        y: Math.max(16, Math.min(world.height - 16, y)),
+        radius: 13,
+        speed: 54,
+        health: 30,
+        damage: 8
+    });
+    nextEnemyId += 1;
+}
+
+function removeDefeatedEnemies() {
+    for (let index = enemies.length - 1; index >= 0; index -= 1) {
+        if (enemies[index].health <= 0) {
+            enemies.splice(index, 1);
+        }
+    }
+}
+
+function updateHealthBar() {
+    const healthBar = document.querySelector("#health-bar");
+    const healthValue = document.querySelector("#health-value");
+    const healthPercent = (player.health / player.maxHealth) * 100;
+    healthBar.style.width = `${healthPercent}%`;
+    healthValue.textContent = `${player.health}/${player.maxHealth}`;
 }
 
 function drawGame() {
+    context.save();
+    context.translate(-camera.x, -camera.y);
     drawUrbanEnvironment();
+    enemies.forEach(drawZombie);
     drawPlayer();
+    context.restore();
 }
 
 function drawUrbanEnvironment() {
-    const { width, height } = canvas;
+    const { width, height } = world;
 
     context.fillStyle = "#111814";
     context.fillRect(0, 0, width, height);
@@ -160,23 +269,31 @@ function drawUrbanEnvironment() {
     }
 
     drawRoadMarkings();
-    drawBuilding(16, 16, 42, 42);
-    drawBuilding(width - 58, 16, 42, 42);
-    drawBuilding(16, height - 58, 42, 42);
-    drawBuilding(width - 58, height - 58, 42, 42);
-    drawStreetLight(108, 48);
-    drawStreetLight(width - 108, height - 48);
-    drawDebris(230, 160);
-    drawDebris(width - 250, height - 175);
+    for (let x = 16; x < width; x += 280) {
+        drawBuilding(x, 16, 42, 42);
+        drawBuilding(x, height - 58, 42, 42);
+    }
+    for (let y = 16; y < height; y += 280) {
+        drawBuilding(16, y, 42, 42);
+        drawBuilding(width - 58, y, 42, 42);
+    }
+    for (let x = 108; x < width; x += 420) {
+        drawStreetLight(x, 48);
+        drawStreetLight(x, height - 76);
+    }
+    for (let y = 208; y < height - 150; y += 360) {
+        drawDebris(230, y);
+        drawDebris(width - 250, y + 120);
+    }
 }
 
 function drawRoadMarkings() {
     context.fillStyle = "#687254";
-    for (let x = 124; x < canvas.width - 124; x += 70) {
-        context.fillRect(x, canvas.height / 2 - 2, 34, 4);
+    for (let x = 124; x < world.width - 124; x += 70) {
+        context.fillRect(x, world.height / 2 - 2, 34, 4);
     }
-    for (let y = 116; y < canvas.height - 116; y += 70) {
-        context.fillRect(canvas.width / 2 - 2, y, 4, 34);
+    for (let y = 116; y < world.height - 116; y += 70) {
+        context.fillRect(world.width / 2 - 2, y, 4, 34);
     }
 }
 
@@ -221,6 +338,24 @@ function drawPlayer() {
     context.fillRect(x + 8, y - 1, 8, 5);
 }
 
+function drawZombie(enemy) {
+    const { x, y } = enemy;
+    context.fillStyle = "rgba(0, 0, 0, 0.35)";
+    context.fillRect(x - 11, y + 13, 22, 5);
+    context.fillStyle = "#74816a";
+    context.fillRect(x - 8, y - 12, 16, 11);
+    context.fillStyle = "#a8a27a";
+    context.fillRect(x - 5, y - 7, 3, 3);
+    context.fillRect(x + 3, y - 7, 3, 3);
+    context.fillStyle = "#4b5c4a";
+    context.fillRect(x - 10, y - 1, 20, 19);
+    context.fillStyle = "#7b302d";
+    context.fillRect(x - 7, y + 8, 14, 4);
+    context.fillStyle = "#202a20";
+    context.fillRect(x - 8, y + 18, 6, 6);
+    context.fillRect(x + 2, y + 18, 6, 6);
+}
+
 window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     if (allowedMovementKeys.has(key)) {
@@ -243,8 +378,9 @@ window.addEventListener("resize", () => {
     }
 });
 
-drawUrbanEnvironment();
-drawPlayer();
+updateCamera();
+updateHealthBar();
+drawGame();
 
 navigationButtons.forEach((button) => {
     button.addEventListener("click", () => {
