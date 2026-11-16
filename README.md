@@ -1,7 +1,7 @@
 # BIOHAZARD LAST STAND 
-School project in collaborations with:
-JOHN CODDY RIOSA
-JOHN MARCO GALAROSA
+School project in collaboration with:
+ JOHN CODDY RIOSA,
+JOHN MARCO GALAROSA, &
 RALLI CRIS QUEDA
 
 ## Description
