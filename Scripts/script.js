@@ -33,20 +33,67 @@ const camera = {
 const enemies = [];
 const projectiles = [];
 const experienceOrbs = [];
+const fireZones = [];
 const impactEffects = [];
 const enemyTypes = {
-    zombie: { health: 30, speed: 54, damage: 8, score: 10, experience: 15, radius: 13 },
-    hound: { health: 22, speed: 100, damage: 12, score: 25, experience: 20, radius: 11 },
-    mutant: { health: 90, speed: 34, damage: 18, score: 50, experience: 40, radius: 19 },
-    tyrant: { health: 350, speed: 25, damage: 25, score: 500, experience: 100, radius: 30 }
+    zombie: {
+        health: 30, speed: 54, damage: 8, score: 10, experience: 15, radius: 13,
+        attackRange: 30, attackCooldown: 1.1, windup: 0.2
+    },
+    hound: {
+        health: 22, speed: 100, damage: 12, score: 25, experience: 20, radius: 11,
+        attackRange: 150, attackCooldown: 2.2, windup: 0.45
+    },
+    crawler: {
+        health: 18, speed: 72, damage: 14, score: 30, experience: 24, radius: 9,
+        attackRange: 120, attackCooldown: 2.4, windup: 0.35
+    },
+    bloated: {
+        health: 110, speed: 30, damage: 20, score: 65, experience: 50, radius: 20,
+        attackRange: 110, attackCooldown: 3.2, windup: 0.8
+    },
+    mutant: {
+        health: 90, speed: 34, damage: 18, score: 50, experience: 40, radius: 19,
+        attackRange: 38, attackCooldown: 1.8, windup: 0.55
+    },
+    tyrant: {
+        health: 350, speed: 25, damage: 25, score: 500, experience: 100, radius: 30,
+        attackRange: 75, attackCooldown: 2.8, windup: 0.9
+    }
 };
-const handgun = {
-    damage: 20,
-    cooldown: 0.55,
-    range: 560,
-    projectileSpeed: 520,
-    projectileCount: 1
+const weapons = {
+    handgun: {
+        name: "Handgun", damage: 20, cooldown: 0.55, range: 560,
+        projectileSpeed: 520, projectileCount: 1, color: "#e0c779"
+    },
+    shotgun: {
+        name: "Shotgun", damage: 28, cooldown: 1.15, range: 390,
+        projectileSpeed: 460, projectileCount: 5, spread: 0.2, color: "#d7a85b"
+    },
+    smg: {
+        name: "SMG", damage: 9, cooldown: 0.16, range: 500,
+        projectileSpeed: 620, projectileCount: 1, spread: 0.04, color: "#d5d17b"
+    },
+    rifle: {
+        name: "Assault Rifle", damage: 24, cooldown: 0.38, range: 760,
+        projectileSpeed: 700, projectileCount: 1, color: "#e3d99a"
+    },
+    grenade: {
+        name: "Grenade Launcher", damage: 50, cooldown: 2.2, range: 620,
+        projectileSpeed: 300, projectileCount: 1, explosionRadius: 95, color: "#b9a15b"
+    },
+    molotov: {
+        name: "Molotov", damage: 12, cooldown: 2.8, range: 560,
+        projectileSpeed: 340, projectileCount: 1, fireRadius: 70, color: "#ef754c"
+    },
+    magnum: {
+        name: "Magnum", damage: 95, cooldown: 1.8, range: 680,
+        projectileSpeed: 580, projectileCount: 1, color: "#ef5c4c"
+    }
 };
+const handgun = weapons.handgun;
+const ownedWeapons = new Set(["handgun"]);
+let activeWeaponId = "handgun";
 const upgrades = [
     {
         name: "Reinforced Rounds",
@@ -70,14 +117,15 @@ const upgrades = [
     },
     {
         name: "Expanded Magazine",
-        description: "Fire one additional handgun projectile.",
-        apply: () => { handgun.projectileCount += 1; }
+        description: "Fire one additional projectile with your active weapon.",
+        apply: () => { weapons[activeWeaponId].projectileCount += 1; }
     },
     {
         name: "Scavenger",
         description: "Increase experience pickup range by 35.",
         apply: () => { player.pickupRange += 35; }
-    }
+    },
+    ...createWeaponUnlocks()
 ];
 
 let animationFrameId = null;
@@ -163,12 +211,18 @@ function startGame() {
     player.experienceToNextLevel = 40;
     player.pickupRange = 90;
     player.speed = 220;
+    Object.values(weapons).forEach((weapon) => {
+        weapon.projectileCount = weapon.projectileCount > 1 && weapon.name === "Shotgun" ? 5 : 1;
+    });
     handgun.damage = 20;
     handgun.cooldown = 0.55;
-    handgun.projectileCount = 1;
+    ownedWeapons.clear();
+    ownedWeapons.add("handgun");
+    activeWeaponId = "handgun";
     enemies.length = 0;
     projectiles.length = 0;
     experienceOrbs.length = 0;
+    fireZones.length = 0;
     impactEffects.length = 0;
     enemySpawnTimer = 0;
     nextEnemyId = 1;
@@ -186,6 +240,7 @@ function startGame() {
     updateHealthBar();
     updateExperienceBar();
     updateScoreboard();
+    updateWeaponDisplay();
     gameIsRunning = true;
     previousTime = 0;
 
@@ -299,25 +354,106 @@ function updateEnemies(deltaTime) {
         const distanceX = player.x - enemy.x;
         const distanceY = player.y - enemy.y;
         const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+        enemy.attackCooldownRemaining = Math.max(0, enemy.attackCooldownRemaining - deltaTime);
+        enemy.attackTimer = Math.max(0, enemy.attackTimer - deltaTime);
 
-        if (distance > 0) {
+        if (enemy.attackState === "windup") {
+            if (enemy.attackTimer === 0) {
+                performEnemyAttack(enemy);
+            }
+        } else if (enemy.attackState === "lunge") {
+            enemy.x += enemy.lungeX * enemy.lungeSpeed * deltaTime;
+            enemy.y += enemy.lungeY * enemy.lungeSpeed * deltaTime;
+            if (!enemy.attackHit && Math.hypot(player.x - enemy.x, player.y - enemy.y) <= enemy.radius + player.width / 2) {
+                damagePlayer(enemy.damage);
+                enemy.attackHit = true;
+            }
+            if (enemy.attackTimer === 0) {
+                enemy.attackState = "idle";
+            }
+        } else if (distance > enemy.attackRange) {
             enemy.x += (distanceX / distance) * enemy.speed * deltaTime;
             enemy.y += (distanceY / distance) * enemy.speed * deltaTime;
         }
 
-        if (distance < enemy.radius + player.width / 2 && player.damageCooldown === 0) {
-            player.health = Math.max(0, player.health - enemy.damage);
-            player.damageCooldown = 0.75;
-            updateHealthBar();
-
-            if (player.health === 0) {
-                finishGame();
-                return;
-            }
+        if (
+            enemy.attackState === "idle" &&
+            enemy.attackCooldownRemaining === 0 &&
+            distance <= enemy.attackRange
+        ) {
+            beginEnemyAttack(enemy);
         }
     });
 
     removeDefeatedEnemies();
+}
+
+function beginEnemyAttack(enemy) {
+    enemy.attackState = "windup";
+    enemy.attackTimer = enemy.windup;
+    enemy.attackCooldownRemaining = enemy.attackCooldown;
+    enemy.attackHit = false;
+    enemy.targetX = player.x;
+    enemy.targetY = player.y;
+
+    if (enemy.type === "hound" || enemy.type === "crawler") {
+        const distance = Math.hypot(enemy.targetX - enemy.x, enemy.targetY - enemy.y) || 1;
+        enemy.lungeX = (enemy.targetX - enemy.x) / distance;
+        enemy.lungeY = (enemy.targetY - enemy.y) / distance;
+    }
+}
+
+function performEnemyAttack(enemy) {
+    enemy.attackState = "idle";
+
+    if (enemy.type === "hound" || enemy.type === "crawler") {
+        enemy.attackState = "lunge";
+        enemy.attackTimer = 0.24;
+        enemy.lungeSpeed = enemy.type === "hound" ? 390 : 300;
+        return;
+    }
+
+    if (enemy.type === "bloated") {
+        createEnemyWarning(enemy, 82);
+        applyAreaDamage(enemy.x, enemy.y, 82, enemy.damage);
+        return;
+    }
+
+    const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+    if (distance <= enemy.attackRange + player.width / 2) {
+        damagePlayer(enemy.damage);
+    }
+}
+
+function applyAreaDamage(x, y, radius, damage) {
+    const distance = Math.hypot(player.x - x, player.y - y);
+    if (distance <= radius + player.width / 2) {
+        damagePlayer(damage);
+    }
+}
+
+function damagePlayer(damage) {
+    if (player.damageCooldown > 0) {
+        return;
+    }
+
+    player.health = Math.max(0, player.health - damage);
+    player.damageCooldown = 0.75;
+    updateHealthBar();
+
+    if (player.health === 0) {
+        finishGame();
+    }
+}
+
+function createEnemyWarning(enemy, radius) {
+    impactEffects.push({
+        x: enemy.x,
+        y: enemy.y,
+        life: 0.35,
+        radius,
+        warning: true
+    });
 }
 
 function spawnEnemy(type = chooseEnemyType()) {
@@ -353,7 +489,19 @@ function spawnEnemy(type = chooseEnemyType()) {
         maxHealth: Math.round(enemyType.health * difficultyMultiplier),
         damage: enemyType.damage,
         score: enemyType.score,
-        experience: enemyType.experience
+        experience: enemyType.experience,
+        attackRange: enemyType.attackRange,
+        attackCooldown: enemyType.attackCooldown,
+        attackCooldownRemaining: 0,
+        attackState: "idle",
+        attackTimer: 0,
+        windup: enemyType.windup,
+        targetX: x,
+        targetY: y,
+        lungeX: 0,
+        lungeY: 0,
+        lungeSpeed: 0,
+        attackHit: false
     });
     nextEnemyId += 1;
 }
@@ -363,6 +511,12 @@ function chooseEnemyType() {
 
     if (survivalTime >= 40 && roll < 0.15) {
         return "mutant";
+    }
+    if (survivalTime >= 30 && roll < 0.28) {
+        return "bloated";
+    }
+    if (survivalTime >= 25 && roll < 0.42) {
+        return "crawler";
     }
     if (survivalTime >= 20 && roll < 0.35) {
         return "hound";
@@ -390,12 +544,13 @@ function removeDefeatedEnemies() {
 }
 
 function updateCombat(deltaTime) {
+    const activeWeapon = weapons[activeWeaponId];
     handgunCooldown = Math.max(0, handgunCooldown - deltaTime);
     if (handgunCooldown === 0) {
-        const target = findNearestEnemy();
+        const target = findNearestEnemy(activeWeapon.range);
         if (target !== null) {
-            fireHandgun(target);
-            handgunCooldown = handgun.cooldown;
+            fireWeapon(target, activeWeapon);
+            handgunCooldown = activeWeapon.cooldown;
         }
     }
 
@@ -413,6 +568,18 @@ function updateCombat(deltaTime) {
                 enemy.health -= projectile.damage;
                 projectile.hit = true;
                 impactEffects.push({ x: enemy.x, y: enemy.y, life: 0.16 });
+                if (projectile.explosionRadius) {
+                    damageEnemiesInRadius(projectile.x, projectile.y, projectile.explosionRadius, projectile.damage);
+                }
+                if (projectile.fireRadius) {
+                    fireZones.push({
+                        x: projectile.x,
+                        y: projectile.y,
+                        radius: projectile.fireRadius,
+                        life: 4,
+                        damageTimer: 0
+                    });
+                }
             }
         });
     });
@@ -432,12 +599,26 @@ function updateCombat(deltaTime) {
         }
     }
 
+    fireZones.forEach((zone) => {
+        zone.life -= deltaTime;
+        zone.damageTimer -= deltaTime;
+        if (zone.damageTimer <= 0) {
+            damageEnemiesInRadius(zone.x, zone.y, zone.radius, 12);
+            zone.damageTimer = 0.5;
+        }
+    });
+    for (let index = fireZones.length - 1; index >= 0; index -= 1) {
+        if (fireZones[index].life <= 0) {
+            fireZones.splice(index, 1);
+        }
+    }
+
     removeDefeatedEnemies();
 }
 
-function findNearestEnemy() {
+function findNearestEnemy(range) {
     let nearestEnemy = null;
-    let nearestDistance = handgun.range;
+    let nearestDistance = range;
 
     enemies.forEach((enemy) => {
         const distanceX = player.x - enemy.x;
@@ -453,25 +634,51 @@ function findNearestEnemy() {
     return nearestEnemy;
 }
 
-function fireHandgun(target) {
+function fireWeapon(target, weapon) {
     const distanceX = target.x - player.x;
     const distanceY = target.y - player.y;
     const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
 
-    for (let index = 0; index < handgun.projectileCount; index += 1) {
-        const spread = (index - (handgun.projectileCount - 1) / 2) * 0.12;
+    for (let index = 0; index < weapon.projectileCount; index += 1) {
+        const spread = (index - (weapon.projectileCount - 1) / 2) * (weapon.spread || 0.12);
         const angle = Math.atan2(distanceY, distanceX) + spread;
         projectiles.push({
             x: player.x,
             y: player.y,
             radius: 4,
-            damage: handgun.damage,
-            velocityX: Math.cos(angle) * handgun.projectileSpeed,
-            velocityY: Math.sin(angle) * handgun.projectileSpeed,
-            life: handgun.range / handgun.projectileSpeed,
+            damage: weapon.damage,
+            velocityX: Math.cos(angle) * weapon.projectileSpeed,
+            velocityY: Math.sin(angle) * weapon.projectileSpeed,
+            life: weapon.range / weapon.projectileSpeed,
+            explosionRadius: weapon.explosionRadius || 0,
+            fireRadius: weapon.fireRadius || 0,
+            color: weapon.color,
             hit: false
         });
     }
+}
+
+function damageEnemiesInRadius(x, y, radius, damage) {
+    enemies.forEach((enemy) => {
+        if (Math.hypot(enemy.x - x, enemy.y - y) <= radius) {
+            enemy.health -= damage * 0.65;
+        }
+    });
+}
+
+function createWeaponUnlocks() {
+    return Object.entries(weapons)
+        .filter(([weaponId]) => weaponId !== "handgun")
+        .map(([weaponId, weapon]) => ({
+            name: `Unlock ${weapon.name}`,
+            description: `Unlock the ${weapon.name} and equip it automatically.`,
+            weaponId,
+            apply: () => {
+                ownedWeapons.add(weaponId);
+                activeWeaponId = weaponId;
+                updateWeaponDisplay();
+            }
+        }));
 }
 
 function updateExperience() {
@@ -544,7 +751,18 @@ function renderUpgradeChoices() {
 }
 
 function getRandomUpgrades(amount) {
-    return [...upgrades].sort(() => Math.random() - 0.5).slice(0, amount);
+    const availableUpgrades = upgrades.filter((upgrade) => !upgrade.weaponId || !ownedWeapons.has(upgrade.weaponId));
+    const availableUnlocks = availableUpgrades.filter((upgrade) => upgrade.weaponId);
+    const regularUpgrades = availableUpgrades.filter((upgrade) => !upgrade.weaponId);
+    const choices = [];
+
+    if (availableUnlocks.length > 0) {
+        choices.push(availableUnlocks[Math.floor(Math.random() * availableUnlocks.length)]);
+    }
+
+    return choices.concat(
+        regularUpgrades.sort(() => Math.random() - 0.5).slice(0, amount - choices.length)
+    );
 }
 
 function updateHealthBar() {
@@ -580,16 +798,34 @@ function updateScoreboard() {
     document.querySelector("#bosses-value").textContent = String(bossesDefeated).padStart(2, "0");
 }
 
+function updateWeaponDisplay() {
+    const weaponInventory = document.querySelector("#weapon-inventory");
+    const activeWeapon = weapons[activeWeaponId];
+    weaponInventory.textContent = `EQUIPPED: ${activeWeapon.name.toUpperCase()} // ${[...ownedWeapons]
+        .map((weaponId) => weapons[weaponId].name.toUpperCase())
+        .join(" / ")}`;
+}
+
 function drawGame() {
     context.save();
     context.translate(-camera.x, -camera.y);
     drawUrbanEnvironment();
+    fireZones.forEach(drawFireZone);
     experienceOrbs.forEach(drawExperienceOrb);
     enemies.forEach(drawEnemy);
     projectiles.forEach(drawProjectile);
     impactEffects.forEach(drawImpactEffect);
     drawPlayer();
     context.restore();
+}
+
+function drawFireZone(zone) {
+    context.fillStyle = "rgba(201, 77, 45, 0.22)";
+    context.beginPath();
+    context.arc(zone.x, zone.y, zone.radius, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = "rgba(239, 117, 76, 0.75)";
+    context.stroke();
 }
 
 function drawExperienceOrb(orb) {
@@ -601,10 +837,19 @@ function drawExperienceOrb(orb) {
 }
 
 function drawImpactEffect(effect) {
-    const radius = (1 - effect.life / 0.16) * 12;
-    context.strokeStyle = `rgba(239, 92, 76, ${effect.life / 0.16})`;
+    const duration = effect.warning ? 0.35 : 0.16;
+    const radius = effect.warning ? effect.radius : (1 - effect.life / duration) * 12;
+    context.strokeStyle = effect.warning
+        ? `rgba(239, 92, 76, ${effect.life / duration})`
+        : `rgba(239, 92, 76, ${effect.life / duration})`;
     context.lineWidth = 2;
-    context.strokeRect(effect.x - radius, effect.y - radius, radius * 2, radius * 2);
+    if (effect.warning) {
+        context.beginPath();
+        context.arc(effect.x, effect.y, radius, 0, Math.PI * 2);
+        context.stroke();
+    } else {
+        context.strokeRect(effect.x - radius, effect.y - radius, radius * 2, radius * 2);
+    }
 }
 
 function drawUrbanEnvironment() {
@@ -718,11 +963,41 @@ function drawEnemy(enemy) {
     context.fillStyle = "rgba(0, 0, 0, 0.35)";
     context.fillRect(x - enemy.radius, y + enemy.radius - 1, enemy.radius * 2, 5);
 
+    if (enemy.attackState === "windup") {
+        context.strokeStyle = "#ef5c4c";
+        context.lineWidth = 2;
+        context.beginPath();
+        context.arc(x, y, enemy.attackRange, 0, Math.PI * 2);
+        context.stroke();
+    }
+
     if (enemy.type === "hound") {
         context.fillStyle = "#66745d";
         context.fillRect(x - 13, y - 7, 26, 12);
         context.fillStyle = "#a8a27a";
         context.fillRect(x + 10, y - 5, 5, 4);
+        return;
+    }
+
+    if (enemy.type === "crawler") {
+        context.fillStyle = "#596b56";
+        context.fillRect(x - 14, y - 5, 28, 10);
+        context.fillStyle = "#a8a27a";
+        context.fillRect(x + 9, y - 3, 5, 3);
+        context.fillStyle = "#202a20";
+        context.fillRect(x - 12, y + 6, 8, 4);
+        context.fillRect(x + 4, y + 6, 8, 4);
+        return;
+    }
+
+    if (enemy.type === "bloated") {
+        context.fillStyle = "#7b674d";
+        context.fillRect(x - 17, y - 17, 34, 34);
+        context.fillStyle = "#a8a27a";
+        context.fillRect(x - 6, y - 8, 4, 4);
+        context.fillRect(x + 3, y - 8, 4, 4);
+        context.fillStyle = "#9b3b32";
+        context.fillRect(x - 7, y + 5, 14, 5);
         return;
     }
 
@@ -734,6 +1009,7 @@ function drawEnemy(enemy) {
         context.fillStyle = "#202a20";
         context.fillRect(x - enemy.radius + 5, y + enemy.radius - 1, 8, 8);
         context.fillRect(x + enemy.radius - 13, y + enemy.radius - 1, 8, 8);
+        drawEnemyHealthBar(enemy);
         return;
     }
 
@@ -751,8 +1027,19 @@ function drawEnemy(enemy) {
     context.fillRect(x + 2, y + 18, 6, 6);
 }
 
+function drawEnemyHealthBar(enemy) {
+    const barWidth = enemy.radius * 2.4;
+    const barHeight = 4;
+    const barX = enemy.x - barWidth / 2;
+    const barY = enemy.y - enemy.radius - 10;
+    context.fillStyle = "#080b0a";
+    context.fillRect(barX, barY, barWidth, barHeight);
+    context.fillStyle = enemy.type === "tyrant" ? "#ef5c4c" : "#b68c4d";
+    context.fillRect(barX, barY, barWidth * (enemy.health / enemy.maxHealth), barHeight);
+}
+
 function drawProjectile(projectile) {
-    context.fillStyle = "#e0c779";
+    context.fillStyle = projectile.color || "#e0c779";
     context.fillRect(
         projectile.x - projectile.radius,
         projectile.y - projectile.radius,
@@ -763,11 +1050,24 @@ function drawProjectile(projectile) {
 
 window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
+    if (key === "q" && gameIsRunning) {
+        cycleWeapon();
+        return;
+    }
+
     if (allowedMovementKeys.has(key)) {
         event.preventDefault();
         keys.add(key);
     }
 });
+
+function cycleWeapon() {
+    const weaponIds = [...ownedWeapons];
+    const currentIndex = weaponIds.indexOf(activeWeaponId);
+    activeWeaponId = weaponIds[(currentIndex + 1) % weaponIds.length];
+    handgunCooldown = 0;
+    updateWeaponDisplay();
+}
 
 window.addEventListener("keyup", (event) => {
     keys.delete(event.key.toLowerCase());
@@ -787,6 +1087,7 @@ updateCamera();
 updateHealthBar();
 updateExperienceBar();
 updateScoreboard();
+updateWeaponDisplay();
 drawGame();
 
 navigationButtons.forEach((button) => {

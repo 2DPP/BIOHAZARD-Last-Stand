@@ -469,6 +469,13 @@ h1 span {
     font-size: 0.75rem;
 }
 
+#weapon-inventory {
+    max-width: 80%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .text-button {
     border: 0;
     background: transparent;
