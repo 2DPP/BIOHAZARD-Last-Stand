@@ -94,6 +94,10 @@ let bossesDefeated = 0;
 let lastScoredMinute = 0;
 let nextBossTime = 60;
 let visualTime = 0;
+let screenShakeTimer = 0;
+let muzzleFlashTimer = 0;
+let lastPlayerX = 0;
+let lastPlayerY = 0;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -373,16 +377,31 @@ function chooseEnemyType() {
 function removeDefeatedEnemies() {
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
         if (enemies[index].health <= 0) {
-            experienceOrbs.push({
-                x: enemies[index].x,
-                y: enemies[index].y,
-                value: enemies[index].experience
-            });
-            score += enemies[index].score;
-            kills += 1;
-            if (enemies[index].type === "tyrant") {
+            const enemy = enemies[index];
+            
+            // Spawn pixelated blood splatter particles on death
+            for (let b = 0; b < 6; b++) {
+                impactEffects.push({
+                    x: enemy.x + (Math.random() - 0.5) * 20,
+                    y: enemy.y + (Math.random() - 0.5) * 20,
+                    life: 0.35,
+                    isBloodSplatter: true
+                });
+            }
+
+            // Trigger screen shake on Boss/Tyrant defeat
+            if (enemy.type === "tyrant") {
+                screenShakeTimer = 0.4;
                 bossesDefeated += 1;
             }
+
+            experienceOrbs.push({
+                x: enemy.x,
+                y: enemy.y,
+                value: enemy.experience
+            });
+            score += enemy.score;
+            kills += 1;
             enemies.splice(index, 1);
             updateScoreboard();
         }
@@ -391,6 +410,9 @@ function removeDefeatedEnemies() {
 
 function updateCombat(deltaTime) {
     handgunCooldown = Math.max(0, handgunCooldown - deltaTime);
+    muzzleFlashTimer = Math.max(0, muzzleFlashTimer - deltaTime);
+    screenShakeTimer = Math.max(0, screenShakeTimer - deltaTime);
+
     if (handgunCooldown === 0) {
         const target = findNearestEnemy();
         if (target !== null) {
@@ -412,7 +434,14 @@ function updateCombat(deltaTime) {
             if (!projectile.hit && distance < projectile.radius + enemy.radius) {
                 enemy.health -= projectile.damage;
                 projectile.hit = true;
-                impactEffects.push({ x: enemy.x, y: enemy.y, life: 0.16 });
+                
+                // Pixel blood impact effect on hit
+                impactEffects.push({ 
+                    x: enemy.x, 
+                    y: enemy.y, 
+                    life: 0.2, 
+                    isBloodSplatter: false 
+                });
             }
         });
     });
@@ -457,6 +486,8 @@ function fireHandgun(target) {
     const distanceX = target.x - player.x;
     const distanceY = target.y - player.y;
     const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+
+    muzzleFlashTimer = 0.08; // Flash duration
 
     for (let index = 0; index < handgun.projectileCount; index += 1) {
         const spread = (index - (handgun.projectileCount - 1) / 2) * 0.12;
@@ -582,183 +613,343 @@ function updateScoreboard() {
 
 function drawGame() {
     context.save();
-    context.translate(-camera.x, -camera.y);
+
+    // Apply screen shake offset if active
+    let shakeX = 0;
+    let shakeY = 0;
+    if (screenShakeTimer > 0) {
+        shakeX = (Math.random() - 0.5) * 10;
+        shakeY = (Math.random() - 0.5) * 10;
+    }
+
+    context.translate(-camera.x + shakeX, -camera.y + shakeY);
+
     drawUrbanEnvironment();
     experienceOrbs.forEach(drawExperienceOrb);
     enemies.forEach(drawEnemy);
     projectiles.forEach(drawProjectile);
     impactEffects.forEach(drawImpactEffect);
     drawPlayer();
+
     context.restore();
+
+    // Draw Muzzle Flash overlay on canvas when firing
+    if (muzzleFlashTimer > 0) {
+        context.fillStyle = "rgba(255, 220, 100, 0.25)";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Draw Red Damage Indicator Vignette when player gets hit recently
+    if (player.damageCooldown > 0.4) {
+        context.fillStyle = "rgba(184, 46, 36, 0.35)";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+}
+
+// Draw pixel blood effects & impact flashes
+function drawImpactEffect(effect) {
+    if (effect.isBloodSplatter) {
+        context.fillStyle = "#8a1c14";
+        context.fillRect(effect.x - 2, effect.y - 2, 4, 4);
+    } else {
+        const radius = (1 - effect.life / 0.2) * 10;
+        context.fillStyle = "rgba(220, 50, 40, 0.8)";
+        context.fillRect(effect.x - radius, effect.y - radius, radius * 2, radius * 2);
+    }
 }
 
 function drawExperienceOrb(orb) {
-    const pulse = Math.sin(visualTime * 8 + orb.x) * 1.5;
-    context.fillStyle = "#7ec2a0";
-    context.fillRect(orb.x - 4 - pulse / 2, orb.y - 4 - pulse / 2, 8 + pulse, 8 + pulse);
-    context.fillStyle = "#c4e6ad";
-    context.fillRect(orb.x - 2, orb.y - 2, 4, 4);
+    const pulse = Math.sin(visualTime * 10 + orb.x) * 2;
+    // Retro glowing green Herb / Bio-hazard vial pixel style
+    context.fillStyle = "#38b070";
+    context.fillRect(orb.x - 3, orb.y - 3 - pulse/2, 6, 6 + pulse);
+    context.fillStyle = "#a3ffcc";
+    context.fillRect(orb.x - 1, orb.y - 1 - pulse/2, 2, 2);
 }
 
 function drawImpactEffect(effect) {
-    const radius = (1 - effect.life / 0.16) * 12;
-    context.strokeStyle = `rgba(239, 92, 76, ${effect.life / 0.16})`;
+    const progress = 1 - effect.life / 0.16;
+    const size = progress * 14;
+    context.strokeStyle = `rgba(255, 100, 80, ${effect.life / 0.16})`;
     context.lineWidth = 2;
-    context.strokeRect(effect.x - radius, effect.y - radius, radius * 2, radius * 2);
+    // Pixelated cross slash impact
+    context.strokeRect(effect.x - size/2, effect.y - size/2, size, size);
 }
 
 function drawUrbanEnvironment() {
     const { width, height } = world;
 
-    context.fillStyle = "#111814";
+    // 1. Dark atmospheric asphalt background with an eerie tint
+    context.fillStyle = "#090f0c";
     context.fillRect(0, 0, width, height);
 
-    context.fillStyle = "#1b2520";
-    context.fillRect(0, 0, width, 78);
-    context.fillRect(0, height - 78, width, 78);
-    context.fillRect(0, 0, 74, height);
-    context.fillRect(width - 74, 0, 74, height);
+    // 2. Ruined city sidewalks (darker, grittier stone blocks)
+    context.fillStyle = "#121a15";
+    context.fillRect(0, 0, width, 90);
+    context.fillRect(0, height - 90, width, 90);
+    context.fillRect(0, 0, 90, height);
+    context.fillRect(width - 90, 0, 90, height);
 
-    context.fillStyle = "#28322a";
-    context.fillRect(74, 78, width - 148, height - 156);
+    // Main street area
+    context.fillStyle = "#17221b";
+    context.fillRect(90, 90, width - 180, height - 180);
 
-    context.strokeStyle = "rgba(151, 164, 120, 0.15)";
+    // Cracked pavement grid / tile lines
+    context.strokeStyle = "rgba(32, 48, 38, 0.45)";
     context.lineWidth = 2;
-    for (let x = 100; x < width - 74; x += 48) {
+    for (let x = 90; x < width - 90; x += 72) {
         context.beginPath();
-        context.moveTo(x, 78);
-        context.lineTo(x, height - 78);
+        context.moveTo(x, 90);
+        context.lineTo(x, height - 90);
         context.stroke();
     }
-    for (let y = 100; y < height - 78; y += 48) {
+    for (let y = 90; y < height - 90; y += 72) {
         context.beginPath();
-        context.moveTo(74, y);
-        context.lineTo(width - 74, y);
+        context.moveTo(90, y);
+        context.lineTo(width - 90, y);
         context.stroke();
     }
 
     drawRoadMarkings();
-    for (let x = 16; x < width; x += 280) {
-        drawBuilding(x, 16, 42, 42);
-        drawBuilding(x, height - 58, 42, 42);
+
+    // 3. Bloodstains & biohazard waste splatters on the asphalt
+    drawBloodStains(width, height);
+
+    // 4. Abandoned Buildings (Raccoon City style with barred/broken windows)
+    for (let x = 20; x < width; x += 300) {
+        drawBuilding(x, 15, 60, 60, true);
+        drawBuilding(x, height - 75, 60, 60, false);
     }
-    for (let y = 16; y < height; y += 280) {
-        drawBuilding(16, y, 42, 42);
-        drawBuilding(width - 58, y, 42, 42);
+    for (let y = 20; y < height; y += 300) {
+        drawBuilding(15, y, 60, 60, false);
+        drawBuilding(width - 75, y, 60, 60, true);
     }
-    for (let x = 108; x < width; x += 420) {
-        drawStreetLight(x, 48);
-        drawStreetLight(x, height - 76);
+    
+    // 5. Wrecked Vehicles / Abandoned Cars & Barricades
+    for (let x = 200; x < width - 200; x += 450) {
+        drawAbandonedCar(x, 110, "horizontal");
+        drawAbandonedCar(x + 180, height - 150, "horizontal");
     }
-    for (let y = 208; y < height - 150; y += 360) {
-        drawDebris(230, y);
-        drawDebris(width - 250, y + 120);
+
+    // 6. Broken Streetlights & Warning Signs
+    for (let x = 160; x < width; x += 380) {
+        drawBrokenStreetLight(x, 55);
+        drawBrokenStreetLight(x, height - 55);
+    }
+
+    // 7. Scattered Street Debris
+    for (let y = 220; y < height - 200; y += 280) {
+        drawDebris(280, y);
+        drawDebris(width - 300, y + 150);
     }
 }
 
 function drawRoadMarkings() {
-    context.fillStyle = "#687254";
-    for (let x = 124; x < world.width - 124; x += 70) {
-        context.fillRect(x, world.height / 2 - 2, 34, 4);
+    context.fillStyle = "#3f5245";
+    for (let x = 150; x < world.width - 150; x += 90) {
+        context.fillRect(x, world.height / 2 - 3, 45, 6);
     }
-    for (let y = 116; y < world.height - 116; y += 70) {
-        context.fillRect(world.width / 2 - 2, y, 4, 34);
+    for (let y = 150; y < world.height - 150; y += 90) {
+        context.fillRect(world.width / 2 - 3, y, 6, 45);
     }
 }
 
-function drawBuilding(x, y, width, height) {
-    context.fillStyle = "#0a0e0c";
+function drawBloodStains(width, height) {
+    // Dark crimson organic blood pools scattered across the street
+    context.fillStyle = "rgba(102, 18, 18, 0.45)";
+    context.beginPath();
+    context.ellipse(width * 0.3, height * 0.35, 35, 18, 0.5, 0, Math.PI * 2);
+    context.ellipse(width * 0.7, height * 0.65, 50, 22, -0.3, 0, Math.PI * 2);
+    context.ellipse(width * 0.5, height * 0.8, 25, 12, 1.2, 0, Math.PI * 2);
+    context.fill();
+}
+
+function drawBuilding(x, y, width, height, hasWarningSign) {
+    // Ruined concrete structure
+    context.fillStyle = "#050807";
     context.fillRect(x, y, width, height);
-    context.strokeStyle = "#53614b";
-    context.strokeRect(x + 2, y + 2, width - 4, height - 4);
-    context.fillStyle = "#9b563f";
-    context.fillRect(x + 10, y + 12, 6, 6);
-    context.fillRect(x + 26, y + 24, 6, 6);
+    context.strokeStyle = "#2d3d31";
+    context.lineWidth = 2;
+    context.strokeRect(x, y, width, height);
+
+    // Broken / Dark windows with red emergency glow
+    context.fillStyle = "#471916";
+    context.fillRect(x + 10, y + 10, 12, 14);
+    context.fillRect(x + 38, y + 10, 12, 14);
+    context.fillRect(x + 10, y + 36, 12, 14);
+    context.fillRect(x + 38, y + 36, 12, 14);
+
+    // Optional Raccoon City Police / Umbrella Corp warning sign on wall
+    if (hasWarningSign) {
+        context.fillStyle = "#a89020";
+        context.fillRect(x + 18, y + 24, 24, 12);
+        context.fillStyle = "#111";
+        context.fillRect(x + 22, y + 28, 16, 4);
+    }
 }
 
-function drawStreetLight(x, y) {
-    context.fillStyle = "#69765b";
-    context.fillRect(x - 2, y, 4, 28);
-    context.fillRect(x - 8, y - 2, 16, 4);
-    context.fillStyle = "rgba(214, 193, 108, 0.5)";
-    context.fillRect(x - 4, y - 6, 8, 5);
+function drawAbandonedCar(x, y, orientation) {
+    // Wrecked pixel police cruiser / civilian car
+    context.fillStyle = "#1a241f"; // rusted chassis
+    context.fillRect(x, y, 70, 36);
+
+    // Windshield & windows (shattered / dark)
+    context.fillStyle = "#0d1210";
+    context.fillRect(x + 18, y + 4, 34, 10);
+    
+    // Emergency light bar on top (broken red/blue)
+    context.fillStyle = "rgba(180, 30, 30, 0.7)";
+    context.fillRect(x + 28, y - 4, 8, 4);
+    context.fillStyle = "rgba(30, 80, 180, 0.7)";
+    context.fillRect(x + 38, y - 4, 8, 4);
+
+    // Headlights / debris around car
+    context.fillStyle = "#555";
+    context.fillRect(x - 4, y + 6, 4, 8);
+    context.fillRect(x - 4, y + 22, 4, 8);
+}
+
+function drawBrokenStreetLight(x, y) {
+    context.fillStyle = "#1d2620";
+    context.fillRect(x - 3, y, 6, 36);
+    // Bent top arm
+    context.fillRect(x - 12, y - 4, 24, 6);
+    
+    // Flickering dim red/yellow broken bulb
+    const flicker = Math.sin(visualTime * 20) > 0 ? 0.3 : 0.1;
+    context.fillStyle = `rgba(210, 170, 60, ${flicker})`;
+    context.fillRect(x - 4, y + 2, 8, 6);
 }
 
 function drawDebris(x, y) {
-    context.fillStyle = "#72745a";
-    context.fillRect(x, y, 14, 5);
-    context.fillRect(x + 8, y - 5, 5, 10);
+    // Scattered wreckage / trash / barrels
+    context.fillStyle = "#1f2b23";
+    context.fillRect(x, y, 22, 10);
+    context.fillStyle = "#2d1c1a"; // rusted metal barrel
+    context.fillRect(x + 12, y - 8, 12, 16);
 }
 
 function drawPlayer() {
     const { x, y, width, height } = player;
-    const bob = player.isMoving ? Math.sin(visualTime * 12) * 2 : 0;
+    // Walking pixel bob animation
+    const bob = player.isMoving ? Math.sin(visualTime * 14) * 3 : 0;
     const flash = player.damageCooldown > 0.55;
-    context.fillStyle = "rgba(0, 0, 0, 0.35)";
-    context.fillRect(x - width / 2 - 3, y + height / 2 - 1, width + 6, 5);
+
+    // Drop shadow
+    context.fillStyle = "rgba(0, 0, 0, 0.5)";
+    context.fillRect(x - width / 2 - 4, y + height / 2 - 2, width + 8, 6);
+
     if (flash) {
-        context.fillStyle = "rgba(239, 92, 76, 0.75)";
-        context.fillRect(x - 13, y - 17 + bob, 26, 38);
+        context.fillStyle = "rgba(239, 92, 76, 0.9)";
+        context.fillRect(x - 12, y - 18 + bob, 24, 36);
+        return;
     }
-    context.fillStyle = "#c8c59d";
-    context.fillRect(x - 6, y - 13 + bob, 12, 9);
-    context.fillStyle = "#63745c";
-    context.fillRect(x - 9, y - 4 + bob, 18, 19);
-    context.fillStyle = "#9b3b32";
-    context.fillRect(x - 9, y + 8 + bob, 18, 5);
-    context.fillStyle = "#1b211a";
-    context.fillRect(x - 8, y + 15 + bob, 6, 7);
-    context.fillRect(x + 2, y + 15 + bob, 6, 7);
-    context.fillStyle = "#c8c59d";
-    context.fillRect(x + 8, y - 1 + bob, 8, 5);
+
+    // Resident Evil Survival Suit / Tactical Gear Sprite Layout (Pixel-Art Grid)
+    // Hair / Cap
+    context.fillStyle = "#4a443b";
+    context.fillRect(x - 6, y - 16 + bob, 12, 5);
+
+    // Face / Head
+    context.fillStyle = "#dfd5b3";
+    context.fillRect(x - 5, y - 11 + bob, 10, 6);
+
+    // Tactical Vest / Jacket (Green/Dark S.T.A.R.S. style)
+    context.fillStyle = "#415443";
+    context.fillRect(x - 9, y - 5 + bob, 18, 16);
+    
+    // Vest Straps / Details
+    context.fillStyle = "#253127";
+    context.fillRect(x - 2, y - 5 + bob, 4, 16);
+
+    // Handgun Weapon Sprite held in hand (Classic RE handgun silhouette)
+    context.fillStyle = "#111";
+    context.fillRect(x + 6, y - 1 + bob, 8, 3);
+    context.fillStyle = "#b0b0b0";
+    context.fillRect(x + 10, y - 2 + bob, 4, 2);
+
+    // Pants (Dark tactical trousers)
+    context.fillStyle = "#1d261f";
+    context.fillRect(x - 8, y + 11 + bob, 7, 9);
+    context.fillRect(x + 1, y + 11 + bob, 7, 9);
+
+    // Boots
+    context.fillStyle = "#0c110d";
+    context.fillRect(x - 9, y + 19 + bob, 7, 5);
+    context.fillRect(x + 2, y + 19 + bob, 7, 5);
 }
 
 function drawEnemy(enemy) {
     const { x, y } = enemy;
-    context.fillStyle = "rgba(0, 0, 0, 0.35)";
-    context.fillRect(x - enemy.radius, y + enemy.radius - 1, enemy.radius * 2, 5);
+    // Shadow
+    context.fillStyle = "rgba(0, 0, 0, 0.5)";
+    context.fillRect(x - enemy.radius, y + enemy.radius - 2, enemy.radius * 2, 6);
 
     if (enemy.type === "hound") {
-        context.fillStyle = "#66745d";
-        context.fillRect(x - 13, y - 7, 26, 12);
-        context.fillStyle = "#a8a27a";
-        context.fillRect(x + 10, y - 5, 5, 4);
+        // Infected Cerberus Dog Sprite
+        context.fillStyle = "#3d473d";
+        context.fillRect(x - 14, y - 8, 28, 14);
+        // Glowing red eyes
+        context.fillStyle = "#ff3322";
+        context.fillRect(x + 8, y - 6, 3, 3);
+        // Legs
+        context.fillStyle = "#1f261f";
+        context.fillRect(x - 10, y + 6, 5, 6);
+        context.fillRect(x + 5, y + 6, 5, 6);
         return;
     }
 
     if (enemy.type === "mutant" || enemy.type === "tyrant") {
-        context.fillStyle = enemy.type === "tyrant" ? "#713b45" : "#596b56";
+        // Boss / Heavy Mutant Sprite (Tyrant trench coat silhouette)
+        const isTyrant = enemy.type === "tyrant";
+        context.fillStyle = isTyrant ? "#4d2830" : "#3b4a3a";
         context.fillRect(x - enemy.radius, y - enemy.radius, enemy.radius * 2, enemy.radius * 2);
-        context.fillStyle = "#b64c3c";
-        context.fillRect(x - 5, y - 5, 10, 7);
-        context.fillStyle = "#202a20";
-        context.fillRect(x - enemy.radius + 5, y + enemy.radius - 1, 8, 8);
-        context.fillRect(x + enemy.radius - 13, y + enemy.radius - 1, 8, 8);
+        
+        // Glowing infection core or angry eyes
+        context.fillStyle = isTyrant ? "#ffaa22" : "#cc3333";
+        context.fillRect(x - 6, y - 6, 12, 6);
+
+        // Heavy boots / base
+        context.fillStyle = "#111";
+        context.fillRect(x - enemy.radius + 4, y + enemy.radius - 4, 10, 6);
+        context.fillRect(x + enemy.radius - 14, y + enemy.radius - 4, 10, 6);
         return;
     }
 
-    context.fillStyle = "#74816a";
-    context.fillRect(x - 8, y - 12, 16, 11);
-    context.fillStyle = "#a8a27a";
-    context.fillRect(x - 5, y - 7, 3, 3);
-    context.fillRect(x + 3, y - 7, 3, 3);
-    context.fillStyle = "#4b5c4a";
-    context.fillRect(x - 10, y - 1, 20, 19);
-    context.fillStyle = "#7b302d";
-    context.fillRect(x - 7, y + 8, 14, 4);
-    context.fillStyle = "#202a20";
-    context.fillRect(x - 8, y + 18, 6, 6);
-    context.fillRect(x + 2, y + 18, 6, 6);
+    // Classic Resident Evil Zombie Sprite (Decaying skin, torn jacket)
+    // Head & Rotting hair
+    context.fillStyle = "#596656";
+    context.fillRect(x - 6, y - 13, 12, 10);
+    // Hollow red eyes
+    context.fillStyle = "#cc2222";
+    context.fillRect(x - 4, y - 9, 2, 2);
+    context.fillRect(x + 2, y - 9, 2, 2);
+
+    // Decaying body / tattered clothes
+    context.fillStyle = "#424d3f";
+    context.fillRect(x - 9, y - 3, 18, 16);
+    
+    // Blood stain on shirt
+    context.fillStyle = "#8a2b25";
+    context.fillRect(x - 4, y + 2, 8, 6);
+
+    // Tattered pants & boots
+    context.fillStyle = "#1a241b";
+    context.fillRect(x - 7, y + 13, 6, 7);
+    context.fillRect(x + 1, y + 13, 6, 7);
 }
 
 function drawProjectile(projectile) {
-    context.fillStyle = "#e0c779";
+    // Crisper pixel firearm bullet with bright core
+    context.fillStyle = "#ffe680";
     context.fillRect(
         projectile.x - projectile.radius,
         projectile.y - projectile.radius,
         projectile.radius * 2,
         projectile.radius * 2
     );
+    context.fillStyle = "#ffffff";
+    context.fillRect(projectile.x - 1, projectile.y - 1, 2, 2);
 }
 
 window.addEventListener("keydown", (event) => {
