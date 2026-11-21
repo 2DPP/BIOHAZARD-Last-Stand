@@ -15,6 +15,95 @@ const pauseOverlay = document.querySelector("#pause-overlay");
 const joystickBase = document.querySelector("#joystick-base");
 const joystickStick = document.querySelector("#joystick-stick");
 
+/* --- Sprite & GIF Asset Loader --- */
+function loadSprite(src) {
+    const img = new Image();
+    img.src = src;
+    return img;
+}
+
+function isSpriteReady(img) {
+    return Boolean(img && img.complete && img.naturalWidth !== 0);
+}
+
+function getFrameFromList(frameList, fps = 8, offset = 0) {
+    const ready = frameList.filter(isSpriteReady);
+    if (ready.length === 0) return null;
+    const idx = Math.floor(visualTime * fps + offset) % ready.length;
+    return ready[idx];
+}
+
+// 8-direction GIF sprites for character facing & firing (no floating gun overlay)
+const playerGif8 = {
+    east: loadSprite("assets/east.gif"),
+    northeast: loadSprite("assets/northeast.gif"),
+    north: loadSprite("assets/north.gif"),
+    northwest: loadSprite("assets/northwest.gif"),
+    west: loadSprite("assets/west.gif"),
+    southwest: loadSprite("assets/southwest.gif"),
+    south: loadSprite("assets/south.gif"),
+    southeast: loadSprite("assets/southeast.gif")
+};
+
+// Existing PNG sprites kept as fallback & for enemies/effects/pickups/environment
+const sprites = {
+    playerIdle: [
+        loadSprite("assets/player_idle-1.png"),
+        loadSprite("assets/player_idle-2.png")
+    ],
+    playerWalk: [
+        loadSprite("assets/player-walk-1.png"),
+        loadSprite("assets/player-walk-2.png"),
+        loadSprite("assets/player-walk-3.png"),
+        loadSprite("assets/player-walk-4.png"),
+        loadSprite("assets/player-walk-5.png"),
+        loadSprite("assets/player-walk-6.png")
+    ],
+    playerShoot: [
+        loadSprite("assets/player-shoot-1.png"),
+        loadSprite("assets/player-shoot-2.png")
+    ],
+    zombieWalk: [
+        loadSprite("assets/zombie-walk-1.png"),
+        loadSprite("assets/zombie-walk-2.png"),
+        loadSprite("assets/zombie-walk-3.png")
+    ],
+    houndRun: [
+        loadSprite("assets/hound-run-1.png"),
+        loadSprite("assets/hound-run-2.png"),
+        loadSprite("assets/hound-run-3.png")
+    ],
+    mutantWalk: [
+        loadSprite("assets/mutant-walk-1.png"),
+        loadSprite("assets/mutant-walk-2.png"),
+        loadSprite("assets/mutant-walk-3.png")
+    ],
+    tyrantIdle: loadSprite("assets/tyrant-idle.png"),
+    tyrantWalk: [
+        loadSprite("assets/tyrant-walk-1.png"),
+        loadSprite("assets/tyrant-walk-2.png"),
+        loadSprite("assets/tyrant-walk-3.png")
+    ],
+    fxExplosion: [
+        loadSprite("assets/fx-explosion-1.png"),
+        loadSprite("assets/fx-explosion-2.png"),
+        loadSprite("assets/fx-explosion-3.png")
+    ],
+    fxFlash: [
+        loadSprite("assets/fx-flash-1.png"),
+        loadSprite("assets/fx-flash-2.png")
+    ],
+    fxBlood: [
+        loadSprite("assets/fx-blood-1.png"),
+        loadSprite("assets/fx-blood-2.png")
+    ],
+    itemHerbGreen: loadSprite("assets/item-herb-green.png"),
+    tileFloor: loadSprite("assets/tile-floor.png"),
+    propBuilding: loadSprite("assets/prop-building.png"),
+    propStreetLight: loadSprite("assets/prop-streetlight.png"),
+    propDebris: loadSprite("assets/prop-debris.png")
+};
+
 const keys = new Set();
 const world = {
     width: 3200,
@@ -33,7 +122,10 @@ const player = {
     experience: 0,
     experienceToNextLevel: 40,
     pickupRange: 90,
-    isMoving: false
+    isMoving: false,
+    facing8: "east",
+    isFiring: false,
+    fireTimer: 0
 };
 const camera = {
     x: 0,
@@ -128,6 +220,36 @@ const allowedMovementKeys = new Set([
     "arrowright"
 ]);
 
+function getDirection8FromVector(dx, dy) {
+    if (Math.hypot(dx, dy) <= 0.05) {
+        return null;
+    }
+    const angle = Math.atan2(dy, dx);
+    const octant = Math.round(angle / (Math.PI / 4));
+    const dirs = [
+        "east",
+        "southeast",
+        "south",
+        "southwest",
+        "west",
+        "northwest",
+        "north",
+        "northeast"
+    ];
+    const index = ((octant % 8) + 8) % 8;
+    return dirs[index];
+}
+
+function updateAimFacing() {
+    const target = findNearestEnemy();
+    if (target) {
+        const aimDir8 = getDirection8FromVector(target.x - player.x, target.y - player.y);
+        if (aimDir8) {
+            player.facing8 = aimDir8;
+        }
+    }
+}
+
 /* --- Responsive Canvas Sizing (Non-Distorting) --- */
 function resizeCanvas() {
     if (!canvasFrame) {
@@ -138,7 +260,6 @@ function resizeCanvas() {
         return;
     }
 
-    // Ensure a balanced playable field of view across phones, tablets, and desktops
     const minDimension = Math.min(rect.width, rect.height);
     const targetMinWorldView = 420;
     const scale = minDimension < targetMinWorldView ? targetMinWorldView / minDimension : 1;
@@ -216,6 +337,9 @@ function startGame() {
     player.experienceToNextLevel = 40;
     player.pickupRange = 90;
     player.speed = 220;
+    player.facing8 = "east";
+    player.isFiring = false;
+    player.fireTimer = 0;
     handgun.damage = 20;
     handgun.cooldown = 0.55;
     handgun.projectileCount = 1;
@@ -344,15 +468,20 @@ function updatePlayer(deltaTime) {
         verticalDirection /= diagonalLength;
     }
 
-    // Apply analog touch joystick vector if active and no keyboard keys override it
     if (joystick.active && horizontalDirection === 0 && verticalDirection === 0) {
         horizontalDirection = joystick.dx;
         verticalDirection = joystick.dy;
     }
 
     player.isMoving = Math.abs(horizontalDirection) > 0.05 || Math.abs(verticalDirection) > 0.05;
-    if (player.isMoving && !canvasMessage.classList.contains("is-hidden")) {
-        canvasMessage.classList.add("is-hidden");
+    if (player.isMoving) {
+        const moveDir8 = getDirection8FromVector(horizontalDirection, verticalDirection);
+        if (moveDir8) {
+            player.facing8 = moveDir8;
+        }
+        if (!canvasMessage.classList.contains("is-hidden")) {
+            canvasMessage.classList.add("is-hidden");
+        }
     }
 
     player.x += horizontalDirection * player.speed * deltaTime;
@@ -362,6 +491,8 @@ function updatePlayer(deltaTime) {
     const halfHeight = player.height / 2;
     player.x = Math.max(halfWidth, Math.min(world.width - halfWidth, player.x));
     player.y = Math.max(halfHeight, Math.min(world.height - halfHeight, player.y));
+
+    updateAimFacing();
     updateCamera();
 }
 
@@ -474,14 +605,21 @@ function chooseEnemyType() {
 function removeDefeatedEnemies() {
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
         if (enemies[index].health <= 0) {
-            experienceOrbs.push({
-                x: enemies[index].x,
-                y: enemies[index].y,
-                value: enemies[index].experience
+            const defeated = enemies[index];
+            impactEffects.push({
+                x: defeated.x,
+                y: defeated.y,
+                life: 0.25,
+                kind: defeated.type === "tyrant" ? "explosion" : "blood"
             });
-            score += enemies[index].score;
+            experienceOrbs.push({
+                x: defeated.x,
+                y: defeated.y,
+                value: defeated.experience
+            });
+            score += defeated.score;
             kills += 1;
-            if (enemies[index].type === "tyrant") {
+            if (defeated.type === "tyrant") {
                 bossesDefeated += 1;
             }
             enemies.splice(index, 1);
@@ -492,6 +630,14 @@ function removeDefeatedEnemies() {
 
 function updateCombat(deltaTime) {
     handgunCooldown = Math.max(0, handgunCooldown - deltaTime);
+
+    if (player.fireTimer > 0) {
+        player.fireTimer = Math.max(0, player.fireTimer - deltaTime);
+        if (player.fireTimer === 0) {
+            player.isFiring = false;
+        }
+    }
+
     if (handgunCooldown === 0) {
         const target = findNearestEnemy();
         if (target !== null) {
@@ -513,7 +659,7 @@ function updateCombat(deltaTime) {
             if (!projectile.hit && distance < projectile.radius + enemy.radius) {
                 enemy.health -= projectile.damage;
                 projectile.hit = true;
-                impactEffects.push({ x: enemy.x, y: enemy.y, life: 0.16 });
+                impactEffects.push({ x: enemy.x, y: enemy.y, life: 0.16, kind: "blood" });
             }
         });
     });
@@ -557,17 +703,26 @@ function findNearestEnemy() {
 function fireHandgun(target) {
     const distanceX = target.x - player.x;
     const distanceY = target.y - player.y;
+    const angle = Math.atan2(distanceY, distanceX);
+
+    const aimDir8 = getDirection8FromVector(distanceX, distanceY);
+    if (aimDir8) {
+        player.facing8 = aimDir8;
+    }
+
+    player.isFiring = true;
+    player.fireTimer = 0.14;
 
     for (let index = 0; index < handgun.projectileCount; index += 1) {
         const spread = (index - (handgun.projectileCount - 1) / 2) * 0.12;
-        const angle = Math.atan2(distanceY, distanceX) + spread;
+        const shotAngle = angle + spread;
         projectiles.push({
             x: player.x,
             y: player.y,
             radius: 4,
             damage: handgun.damage,
-            velocityX: Math.cos(angle) * handgun.projectileSpeed,
-            velocityY: Math.sin(angle) * handgun.projectileSpeed,
+            velocityX: Math.cos(shotAngle) * handgun.projectileSpeed,
+            velocityY: Math.sin(shotAngle) * handgun.projectileSpeed,
             life: handgun.range / handgun.projectileSpeed,
             hit: false
         });
@@ -683,7 +838,7 @@ function updateScoreboard() {
     document.querySelector("#bosses-value").textContent = String(bossesDefeated).padStart(2, "0");
 }
 
-/* --- Rendering with Viewport Culling for Mobile FPS --- */
+/* --- Rendering with Viewport Culling, Tiled Floor & 8-Way GIF Character --- */
 function drawGame() {
     context.save();
     context.translate(-camera.x, -camera.y);
@@ -698,6 +853,11 @@ function drawGame() {
 
 function drawExperienceOrb(orb) {
     const pulse = Math.sin(visualTime * 8 + orb.x) * 1.5;
+    if (isSpriteReady(sprites.itemHerbGreen)) {
+        const size = 16 + pulse;
+        context.drawImage(sprites.itemHerbGreen, orb.x - size / 2, orb.y - size / 2, size, size);
+        return;
+    }
     context.fillStyle = "#7ec2a0";
     context.fillRect(orb.x - 4 - pulse / 2, orb.y - 4 - pulse / 2, 8 + pulse, 8 + pulse);
     context.fillStyle = "#c4e6ad";
@@ -705,6 +865,20 @@ function drawExperienceOrb(orb) {
 }
 
 function drawImpactEffect(effect) {
+    if (effect.kind === "explosion") {
+        const expSprite = getFrameFromList(sprites.fxExplosion, 12);
+        if (expSprite) {
+            context.drawImage(expSprite, effect.x - 24, effect.y - 24, 48, 48);
+            return;
+        }
+    }
+
+    const bloodSprite = getFrameFromList(sprites.fxBlood, 10);
+    if (bloodSprite) {
+        context.drawImage(bloodSprite, effect.x - 14, effect.y - 14, 28, 28);
+        return;
+    }
+
     const radius = (1 - effect.life / 0.16) * 12;
     context.strokeStyle = `rgba(239, 92, 76, ${effect.life / 0.16})`;
     context.lineWidth = 2;
@@ -727,26 +901,54 @@ function drawUrbanEnvironment() {
     if (minX < 74) context.fillRect(0, minY, 74, camera.viewHeight);
     if (maxX > width - 74) context.fillRect(width - 74, minY, 74, camera.viewHeight);
 
-    context.fillStyle = "#28322a";
-    context.fillRect(74, 78, width - 148, height - 156);
+    const innerMinX = Math.max(74, Math.floor(minX));
+    const innerMaxX = Math.min(width - 74, Math.ceil(maxX));
+    const innerMinY = Math.max(78, Math.floor(minY));
+    const innerMaxY = Math.min(height - 78, Math.ceil(maxY));
 
-    // Draw only visible grid lines
-    context.strokeStyle = "rgba(151, 164, 120, 0.15)";
-    context.lineWidth = 2;
-    const startGridX = Math.max(100, Math.floor((minX - 100) / 48) * 48 + 100);
-    const endGridX = Math.min(width - 74, maxX);
-    context.beginPath();
-    for (let x = startGridX; x < endGridX; x += 48) {
-        context.moveTo(x, Math.max(78, minY));
-        context.lineTo(x, Math.min(height - 78, maxY));
+    if (innerMaxX > innerMinX && innerMaxY > innerMinY) {
+        if (isSpriteReady(sprites.tileFloor)) {
+            const tileSize = 224;
+            const startX = Math.floor(innerMinX / tileSize) * tileSize;
+            const startY = Math.floor(innerMinY / tileSize) * tileSize;
+
+            context.save();
+            context.beginPath();
+            context.rect(innerMinX, innerMinY, innerMaxX - innerMinX, innerMaxY - innerMinY);
+            context.clip();
+
+            for (let tx = startX; tx < innerMaxX; tx += tileSize) {
+                for (let ty = startY; ty < innerMaxY; ty += tileSize) {
+                    context.drawImage(sprites.tileFloor, tx, ty, tileSize, tileSize);
+                }
+            }
+
+            // Soften contrast & darken floor so player, zombies, and herbs stand out clearly
+            context.fillStyle = "rgba(16, 23, 21, 0.58)";
+            context.fillRect(innerMinX, innerMinY, innerMaxX - innerMinX, innerMaxY - innerMinY);
+            context.restore();
+        } else {
+            context.fillStyle = "#28322a";
+            context.fillRect(74, 78, width - 148, height - 156);
+
+            context.strokeStyle = "rgba(151, 164, 120, 0.15)";
+            context.lineWidth = 2;
+            const startGridX = Math.max(100, Math.floor((minX - 100) / 48) * 48 + 100);
+            const endGridX = Math.min(width - 74, maxX);
+            context.beginPath();
+            for (let x = startGridX; x < endGridX; x += 48) {
+                context.moveTo(x, Math.max(78, minY));
+                context.lineTo(x, Math.min(height - 78, maxY));
+            }
+            const startGridY = Math.max(100, Math.floor((minY - 100) / 48) * 48 + 100);
+            const endGridY = Math.min(height - 78, maxY);
+            for (let y = startGridY; y < endGridY; y += 48) {
+                context.moveTo(Math.max(74, minX), y);
+                context.lineTo(Math.min(width - 74, maxX), y);
+            }
+            context.stroke();
+        }
     }
-    const startGridY = Math.max(100, Math.floor((minY - 100) / 48) * 48 + 100);
-    const endGridY = Math.min(height - 78, maxY);
-    for (let y = startGridY; y < endGridY; y += 48) {
-        context.moveTo(Math.max(74, minX), y);
-        context.lineTo(Math.min(width - 74, maxX), y);
-    }
-    context.stroke();
 
     drawRoadMarkings(minX, maxX, minY, maxY);
 
@@ -795,6 +997,10 @@ function drawRoadMarkings(minX, maxX, minY, maxY) {
 }
 
 function drawBuilding(x, y, width, height) {
+    if (isSpriteReady(sprites.propBuilding)) {
+        context.drawImage(sprites.propBuilding, x, y, width, height);
+        return;
+    }
     context.fillStyle = "#0a0e0c";
     context.fillRect(x, y, width, height);
     context.strokeStyle = "#53614b";
@@ -805,6 +1011,10 @@ function drawBuilding(x, y, width, height) {
 }
 
 function drawStreetLight(x, y) {
+    if (isSpriteReady(sprites.propStreetLight)) {
+        context.drawImage(sprites.propStreetLight, x - 14, y - 10, 28, 38);
+        return;
+    }
     context.fillStyle = "#69765b";
     context.fillRect(x - 2, y, 4, 28);
     context.fillRect(x - 8, y - 2, 16, 4);
@@ -813,73 +1023,130 @@ function drawStreetLight(x, y) {
 }
 
 function drawDebris(x, y) {
+    if (isSpriteReady(sprites.propDebris)) {
+        context.drawImage(sprites.propDebris, x - 12, y - 10, 28, 22);
+        return;
+    }
     context.fillStyle = "#72745a";
     context.fillRect(x, y, 14, 5);
     context.fillRect(x + 8, y - 5, 5, 10);
 }
 
 function drawPlayer() {
-    const { x, y, width, height } = player;
+    const { x, y, width, height, facing8 } = player;
     const bob = player.isMoving ? Math.sin(visualTime * 12) * 2 : 0;
+    const recoil = player.isFiring ? Math.sin(visualTime * 55) * 1.5 : 0;
     const flash = player.damageCooldown > 0.55;
+    const spriteW = 50;
+    const spriteH = 54;
+
     context.fillStyle = "rgba(0, 0, 0, 0.35)";
     context.fillRect(x - width / 2 - 3, y + height / 2 - 1, width + 6, 5);
+
+    const gifSprite = playerGif8[facing8] || playerGif8.east;
+
+    context.save();
+    context.translate(x, y + bob + recoil);
+
     if (flash) {
-        context.fillStyle = "rgba(239, 92, 76, 0.75)";
-        context.fillRect(x - 13, y - 17 + bob, 26, 38);
+        context.filter = "sepia(1) saturate(6) hue-rotate(-50deg)";
     }
-    context.fillStyle = "#c8c59d";
-    context.fillRect(x - 6, y - 13 + bob, 12, 9);
-    context.fillStyle = "#63745c";
-    context.fillRect(x - 9, y - 4 + bob, 18, 19);
-    context.fillStyle = "#9b3b32";
-    context.fillRect(x - 9, y + 8 + bob, 18, 5);
-    context.fillStyle = "#1b211a";
-    context.fillRect(x - 8, y + 15 + bob, 6, 7);
-    context.fillRect(x + 2, y + 15 + bob, 6, 7);
-    context.fillStyle = "#c8c59d";
-    context.fillRect(x + 8, y - 1 + bob, 8, 5);
+
+    if (isSpriteReady(gifSprite)) {
+        context.drawImage(gifSprite, -spriteW / 2, -spriteH / 2, spriteW, spriteH);
+    } else {
+        const fallbackImg = player.isFiring
+            ? getFrameFromList(sprites.playerShoot, 14)
+            : player.isMoving
+                ? getFrameFromList(sprites.playerWalk, 10)
+                : getFrameFromList(sprites.playerIdle, 3);
+
+        if (isSpriteReady(fallbackImg)) {
+            const shouldFlip = facing8 === "west" || facing8 === "northwest" || facing8 === "southwest";
+            if (shouldFlip) {
+                context.scale(-1, 1);
+            }
+            context.drawImage(fallbackImg, -spriteW / 2, -spriteH / 2, spriteW, spriteH);
+        } else {
+            context.fillStyle = "#c8c59d";
+            context.fillRect(-6, -13, 12, 9);
+            context.fillStyle = "#63745c";
+            context.fillRect(-9, -4, 18, 19);
+            context.fillStyle = "#9b3b32";
+            context.fillRect(-9, 8, 18, 5);
+            context.fillStyle = "#1b211a";
+            context.fillRect(-8, 15, 6, 7);
+            context.fillRect(2, 15, 6, 7);
+        }
+    }
+
+    context.restore();
 }
 
 function drawEnemy(enemy) {
-    const { x, y } = enemy;
+    const { x, y, radius } = enemy;
+    if (
+        x + radius * 2.5 < camera.x ||
+        x - radius * 2.5 > camera.x + camera.viewWidth ||
+        y + radius * 2.5 < camera.y ||
+        y - radius * 2.5 > camera.y + camera.viewHeight
+    ) {
+        return;
+    }
+
     context.fillStyle = "rgba(0, 0, 0, 0.35)";
-    context.fillRect(x - enemy.radius, y + enemy.radius - 1, enemy.radius * 2, 5);
+    context.fillRect(x - radius, y + radius - 1, radius * 2, 5);
 
+    let enemySprite = null;
     if (enemy.type === "hound") {
+        enemySprite = getFrameFromList(sprites.houndRun, 9, enemy.id);
+    } else if (enemy.type === "mutant") {
+        enemySprite = getFrameFromList(sprites.mutantWalk, 6, enemy.id);
+    } else if (enemy.type === "tyrant") {
+        enemySprite = getFrameFromList(sprites.tyrantWalk, 5, enemy.id) || sprites.tyrantIdle;
+    } else {
+        enemySprite = getFrameFromList(sprites.zombieWalk, 5, enemy.id);
+    }
+
+    const drawSize = enemy.type === "tyrant" ? radius * 2.8 : radius * 2.6;
+
+    context.save();
+    context.translate(x, y);
+
+    if (player.x < x) {
+        context.scale(-1, 1);
+    }
+
+    if (isSpriteReady(enemySprite)) {
+        context.drawImage(enemySprite, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
+    } else if (enemy.type === "hound") {
         context.fillStyle = "#66745d";
-        context.fillRect(x - 13, y - 7, 26, 12);
+        context.fillRect(-13, -7, 26, 12);
         context.fillStyle = "#a8a27a";
-        context.fillRect(x + 10, y - 5, 5, 4);
-        return;
-    }
-
-    if (enemy.type === "mutant" || enemy.type === "tyrant") {
+        context.fillRect(10, -5, 5, 4);
+    } else if (enemy.type === "mutant" || enemy.type === "tyrant") {
         context.fillStyle = enemy.type === "tyrant" ? "#713b45" : "#596b56";
-        context.fillRect(x - enemy.radius, y - enemy.radius, enemy.radius * 2, enemy.radius * 2);
+        context.fillRect(-radius, -radius, radius * 2, radius * 2);
         context.fillStyle = "#b64c3c";
-        context.fillRect(x - 5, y - 5, 10, 7);
-        context.fillStyle = "#202a20";
-        context.fillRect(x - enemy.radius + 5, y + enemy.radius - 1, 8, 8);
-        context.fillRect(x + enemy.radius - 13, y + enemy.radius - 1, 8, 8);
-        return;
+        context.fillRect(-5, -5, 10, 7);
+    } else {
+        context.fillStyle = "#74816a";
+        context.fillRect(-8, -12, 16, 11);
+        context.fillStyle = "#4b5c4a";
+        context.fillRect(-10, -1, 20, 19);
+        context.fillStyle = "#7b302d";
+        context.fillRect(-7, 8, 14, 4);
     }
 
-    context.fillStyle = "#74816a";
-    context.fillRect(x - 8, y - 12, 16, 11);
-    context.fillStyle = "#a8a27a";
-    context.fillRect(x - 5, y - 7, 3, 3);
-    context.fillRect(x + 3, y - 7, 3, 3);
-    context.fillStyle = "#4b5c4a";
-    context.fillRect(x - 10, y - 1, 20, 19);
-    context.fillStyle = "#7b302d";
-    context.fillRect(x - 7, y + 8, 14, 4);
-    context.fillStyle = "#202a20";
-    context.fillRect(x - 8, y + 18, 6, 6);
-    context.fillRect(x + 2, y + 18, 6, 6);
+    context.restore();
 }
 
 function drawProjectile(projectile) {
+    const flashSprite = getFrameFromList(sprites.fxFlash, 16);
+    if (isSpriteReady(flashSprite)) {
+        context.drawImage(flashSprite, projectile.x - 8, projectile.y - 8, 16, 16);
+        return;
+    }
     context.fillStyle = "#e0c779";
     context.fillRect(
         projectile.x - projectile.radius,
@@ -913,7 +1180,6 @@ function updateJoystickPosition(clientX, clientY) {
     const stickX = Math.cos(angle) * clampedDistance;
     const stickY = Math.sin(angle) * clampedDistance;
 
-    // Deadzone of 12% for steady standing
     const normalizedMagnitude = clampedDistance / joystick.maxRadius;
     if (normalizedMagnitude < 0.12) {
         joystick.dx = 0;
@@ -927,7 +1193,6 @@ function updateJoystickPosition(clientX, clientY) {
 }
 
 canvasFrame.addEventListener("touchstart", (event) => {
-    // Allow normal button clicks inside overlays
     if (event.target.closest("button")) {
         return;
     }
@@ -945,7 +1210,6 @@ canvasFrame.addEventListener("touchstart", (event) => {
     joystick.originX = touch.clientX;
     joystick.originY = touch.clientY;
 
-    // Position the floating joystick base directly under the user's thumb
     const localX = touch.clientX - frameRect.left;
     const localY = touch.clientY - frameRect.top;
 
@@ -1019,19 +1283,22 @@ window.addEventListener("orientationchange", () => {
     setTimeout(resizeCanvas, 100);
 });
 
-pauseButton.addEventListener("click", () => togglePause());
-resumeButton.addEventListener("click", () => togglePause(false));
+pauseButton.addEventListener("click", () => {
+    togglePause();
+});
+
+resumeButton.addEventListener("click", () => {
+    togglePause(false);
+});
 
 navigationButtons.forEach((button) => {
     button.addEventListener("click", () => {
-        showScreen(button.dataset.screen);
+        const targetScreen = button.getAttribute("data-screen");
+        if (targetScreen) {
+            showScreen(targetScreen);
+        }
     });
 });
 
-resizeCanvas();
-updateCamera();
-updateHealthBar();
-updateExperienceBar();
-updateScoreboard();
-drawGame();
 displayHighScore();
+resizeCanvas();
