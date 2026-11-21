@@ -221,6 +221,113 @@ h1 span {
     width: 100%;
 }
 
+.username-panel {
+    width: min(100%, 520px);
+}
+
+.username-panel label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.username-input {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 14px 16px;
+    color: var(--text);
+    background: #090d0b;
+    font: 1.4rem "VT323", monospace;
+    text-transform: uppercase;
+}
+
+.username-input:focus {
+    border-color: var(--bright-accent);
+    outline: none;
+}
+
+.username-error {
+    min-height: 18px;
+    margin-top: 8px;
+    color: var(--bright-accent);
+    font-size: 0.72rem;
+}
+
+.username-buttons {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.leaderboard-list {
+    display: grid;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: 20px;
+}
+
+.leaderboard-row {
+    display: grid;
+    grid-template-columns: 46px minmax(100px, 1fr) minmax(120px, auto);
+    align-items: center;
+    gap: 12px;
+    border: 1px solid var(--line);
+    padding: 9px 12px;
+    background: rgba(8, 11, 10, 0.72);
+}
+
+.leaderboard-row strong {
+    color: var(--bright-accent);
+    font: 1.5rem "VT323", monospace;
+}
+
+.leaderboard-name {
+    overflow: hidden;
+    color: var(--text);
+    font-weight: bold;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.leaderboard-details {
+    display: grid;
+    justify-items: end;
+}
+
+.leaderboard-details b {
+    color: var(--text);
+    font: 1.35rem "VT323", monospace;
+}
+
+.leaderboard-details small {
+    color: var(--muted);
+    font-size: 0.58rem;
+}
+
+.leaderboard-empty {
+    border: 1px solid var(--line);
+    padding: 28px 12px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.game-over-username {
+    margin: -16px 0 12px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.personal-best-notice {
+    margin: 0 0 12px;
+    color: var(--bright-accent);
+    font: 1.2rem "VT323", monospace;
+    text-align: center;
+}
+
 .score-display {
     border: 1px solid var(--line);
     margin-bottom: 18px;
@@ -666,6 +773,11 @@ h1 span {
 
     .final-stats {
         grid-template-columns: 1fr;
+    }
+
+    .leaderboard-row {
+        grid-template-columns: 38px minmax(80px, 1fr) minmax(104px, auto);
+        gap: 8px;
     }
 
     .upgrade-options {

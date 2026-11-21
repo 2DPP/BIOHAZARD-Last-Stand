@@ -15,12 +15,26 @@
             <h1 id="game-title">BIOHAZARD:<br><span>LAST STAND</span></h1>
             <p class="tagline">THE CITY IS LOST. YOU ARE NOT.</p>
             <nav class="menu-buttons" aria-label="Main menu">
-                <button class="menu-button menu-button--primary" data-screen="gameplay">Start Game</button>
+                <button class="menu-button menu-button--primary" data-screen="username">Start Game</button>
                 <button class="menu-button" data-screen="instructions">Instructions</button>
                 <button class="menu-button" data-screen="high-scores">High Scores</button>
             </nav>
             <p class="version">BUILD 08 // MOBILE READY</p>
 
+        </section>
+
+        <section id="username" class="screen panel-screen" aria-labelledby="username-title" hidden>
+            <form id="username-form" class="panel username-panel">
+                <p class="eyebrow">SURVIVOR IDENTIFICATION</p>
+                <h2 id="username-title">Enter Name</h2>
+                <label for="username-input">Username</label>
+                <input id="username-input" class="username-input" type="text" maxlength="16" autocomplete="nickname" placeholder="SURVIVOR" aria-describedby="username-error">
+                <p id="username-error" class="username-error" role="alert"></p>
+                <div class="menu-buttons username-buttons">
+                    <button class="menu-button menu-button--primary" type="submit">Begin Run</button>
+                    <button class="menu-button" type="button" data-screen="main-menu">Back</button>
+                </div>
+            </form>
         </section>
 
         <section id="instructions" class="screen panel-screen" aria-labelledby="instructions-title" hidden>
@@ -51,12 +65,9 @@
         <section id="high-scores" class="screen panel-screen" aria-labelledby="high-scores-title" hidden>
             <div class="panel">
                 <p class="eyebrow">ARCHIVES // PERSONAL RECORD</p>
-                <h2 id="high-scores-title">High Scores</h2>
-                <div class="score-display">
-                    <span>BEST SCORE</span>
-                    <strong id="high-score-value">000000</strong>
-                </div>
-                <p class="panel-note">Your best run will be stored here after the first completed game.</p>
+                <h2 id="high-scores-title">Leaderboard</h2>
+                <div id="leaderboard-list" class="leaderboard-list" aria-live="polite"></div>
+                <p class="panel-note">Top 10 local browser records</p>
                 <button class="menu-button back-button" data-screen="main-menu">Return to Main Menu</button>
             </div>
         </section>
@@ -65,6 +76,8 @@
             <div class="panel game-over-panel">
                 <p class="eyebrow">SIGNAL LOST // RUN TERMINATED</p>
                 <h2 id="game-over-title">You Were Overrun</h2>
+                <p id="game-over-username" class="game-over-username"></p>
+                <p id="personal-best-notice" class="personal-best-notice" hidden>NEW PERSONAL BEST</p>
                 <div class="final-stats">
                     <div><span>FINAL SCORE</span><strong id="final-score">000000</strong></div>
                     <div><span>SURVIVAL TIME</span><strong id="final-time">00:00</strong></div>
@@ -76,6 +89,7 @@
                 <div class="menu-buttons game-over-buttons">
                     <button class="menu-button menu-button--primary" data-screen="gameplay">Restart Game</button>
                     <button class="menu-button" data-screen="main-menu">Main Menu</button>
+                    <button class="menu-button" data-screen="high-scores">Leaderboard</button>
                 </div>
             </div>
         </section>

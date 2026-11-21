@@ -14,6 +14,10 @@ const pauseOverlay = document.querySelector("#pause-overlay");
 
 const joystickBase = document.querySelector("#joystick-base");
 const joystickStick = document.querySelector("#joystick-stick");
+const usernameForm = document.querySelector("#username-form");
+const usernameInput = document.querySelector("#username-input");
+const usernameError = document.querySelector("#username-error");
+const leaderboardList = document.querySelector("#leaderboard-list");
 
 /* --- Sprite & GIF Asset Loader --- */
 function loadSprite(src) {
@@ -208,6 +212,8 @@ let bossesDefeated = 0;
 let lastScoredMinute = 0;
 let nextBossTime = 60;
 let visualTime = 0;
+let currentUsername = "";
+let runSubmitted = false;
 
 const allowedMovementKeys = new Set([
     "w",
@@ -288,7 +294,29 @@ function showScreen(screenId) {
         displayHighScore();
     }
 
+    if (screenId === "username") {
+        const savedUsername = getSavedUsername();
+        usernameInput.value = savedUsername;
+        usernameError.textContent = "";
+        if (savedUsername) {
+            usernameInput.select();
+        }
+    }
+
     if (screenId === "gameplay") {
+        if (!currentUsername) {
+            currentUsername = getSavedUsername();
+        }
+        if (!currentUsername) {
+            screenId = "username";
+            screens.forEach((screen) => {
+                screen.hidden = screen.id !== "username";
+                screen.classList.toggle("screen--active", screen.id === "username");
+            });
+            usernameInput.value = "";
+            usernameError.textContent = "";
+            return;
+        }
         requestAnimationFrame(() => {
             resizeCanvas();
             startGame();
@@ -299,7 +327,10 @@ function showScreen(screenId) {
 }
 
 function displayHighScore() {
-    highScoreValue.textContent = formatScore(getSavedHighScore());
+    if (highScoreValue) {
+        highScoreValue.textContent = formatScore(getSavedHighScore());
+    }
+    renderLeaderboard();
 }
 
 function getSavedHighScore() {
@@ -311,20 +342,145 @@ function getSavedHighScore() {
     }
 }
 
+function getSavedHighScoreForUsername() {
+    const entry = getLeaderboard().find(
+        (record) => record.username.toLowerCase() === currentUsername.toLowerCase()
+    );
+    return entry ? entry.score : score;
+}
+
 function saveHighScore() {
-    const personalBest = Math.max(score, getSavedHighScore());
-
-    try {
-        localStorage.setItem("biohazardHighScore", String(personalBest));
-    } catch (error) {
-        console.warn("High score could not be saved in this browser context.", error);
-    }
-
-    return personalBest;
+    return getSavedHighScore();
 }
 
 function formatScore(value) {
     return String(value).padStart(6, "0");
+}
+
+function getSavedUsername() {
+    try {
+        return (localStorage.getItem("biohazardUsername") || "").slice(0, 16);
+    } catch (error) {
+        return "";
+    }
+}
+
+function getLeaderboard() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem("biohazardLeaderboard") || "[]");
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+
+        const records = parsed
+            .filter((entry) =>
+                entry &&
+                typeof entry.username === "string" &&
+                Number.isFinite(Number(entry.score)) &&
+                typeof entry.time === "string"
+            )
+            .map((entry) => ({
+                username: entry.username.trim().slice(0, 16),
+                score: Math.max(0, Math.floor(Number(entry.score))),
+                time: entry.time.slice(0, 8),
+                kills: Number.isFinite(Number(entry.kills)) ? Math.max(0, Math.floor(Number(entry.kills))) : 0
+            }))
+            .filter((entry) => entry.username);
+
+        const uniqueRecords = new Map();
+        records.forEach((entry) => {
+            const key = entry.username.toLowerCase();
+            const existing = uniqueRecords.get(key);
+            if (!existing || entry.score > existing.score) {
+                uniqueRecords.set(key, entry);
+            }
+        });
+
+        return [...uniqueRecords.values()];
+    } catch (error) {
+        return [];
+    }
+}
+
+function saveLeaderboardEntry() {
+    if (runSubmitted) {
+        return { personalBest: false, record: null };
+    }
+    runSubmitted = true;
+
+    const leaderboard = getLeaderboard();
+    const normalizedName = currentUsername.toLowerCase();
+    const existingIndex = leaderboard.findIndex(
+        (entry) => entry.username.toLowerCase() === normalizedName
+    );
+    const previousBest = existingIndex >= 0 ? leaderboard[existingIndex].score : 0;
+    const isPersonalBest = score > previousBest;
+    const record = {
+        username: currentUsername,
+        score,
+        time: formatSurvivalTime(),
+        kills
+    };
+
+    if (existingIndex >= 0) {
+        if (score > leaderboard[existingIndex].score) {
+            leaderboard[existingIndex] = record;
+        }
+    } else {
+        leaderboard.push(record);
+    }
+
+    leaderboard.sort((a, b) => b.score - a.score || b.kills - a.kills);
+
+    try {
+        localStorage.setItem("biohazardLeaderboard", JSON.stringify(leaderboard.slice(0, 10)));
+        localStorage.setItem("biohazardHighScore", String(Math.max(score, getSavedHighScore())));
+    } catch (error) {
+        console.warn("Leaderboard could not be saved in this browser context.", error);
+    }
+
+    return { personalBest: isPersonalBest, record };
+}
+
+function renderLeaderboard() {
+    if (!leaderboardList) {
+        return;
+    }
+
+    const leaderboard = getLeaderboard()
+        .sort((a, b) => b.score - a.score || b.kills - a.kills)
+        .slice(0, 10);
+
+    leaderboardList.replaceChildren();
+
+    if (leaderboard.length === 0) {
+        const emptyRow = document.createElement("p");
+        emptyRow.className = "leaderboard-empty";
+        emptyRow.textContent = "NO COMPLETED RUNS RECORDED";
+        leaderboardList.appendChild(emptyRow);
+        return;
+    }
+
+    leaderboard.forEach((entry, index) => {
+        const row = document.createElement("div");
+        row.className = "leaderboard-row";
+
+        const rank = document.createElement("strong");
+        rank.textContent = String(index + 1).padStart(2, "0");
+
+        const username = document.createElement("span");
+        username.className = "leaderboard-name";
+        username.textContent = entry.username;
+
+        const details = document.createElement("span");
+        details.className = "leaderboard-details";
+        details.innerHTML =
+            `<b>${formatScore(entry.score)}</b>` +
+            `<small>${entry.time} // ${entry.kills} KILLS</small>`;
+
+        row.append(rank, username, details);
+        leaderboardList.appendChild(row);
+    });
 }
 
 function startGame() {
@@ -359,6 +515,7 @@ function startGame() {
     lastScoredMinute = 0;
     nextBossTime = 60;
     visualTime = 0;
+    runSubmitted = false;
 
     resetJoystick();
     keys.clear();
@@ -815,13 +972,16 @@ function updateHealthBar() {
 function finishGame() {
     gameIsRunning = false;
     resetJoystick();
-    const personalBest = saveHighScore();
+    const result = saveLeaderboardEntry();
+    const personalBest = getSavedHighScoreForUsername();
     document.querySelector("#final-score").textContent = formatScore(score);
     document.querySelector("#final-time").textContent = formatSurvivalTime();
     document.querySelector("#final-kills").textContent = String(kills).padStart(3, "0");
     document.querySelector("#final-level").textContent = String(player.level).padStart(2, "0");
     document.querySelector("#final-bosses").textContent = String(bossesDefeated).padStart(2, "0");
     document.querySelector("#personal-best-value").textContent = formatScore(personalBest);
+    document.querySelector("#game-over-username").textContent = `SURVIVOR // ${currentUsername}`;
+    document.querySelector("#personal-best-notice").hidden = !result.personalBest;
     showScreen("game-over");
 }
 
@@ -1255,6 +1415,15 @@ canvasFrame.addEventListener("touchcancel", handleTouchEnd, { passive: false });
 /* --- Event Listeners --- */
 window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
+    const target = event.target;
+    if (
+        target &&
+        (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable)
+    ) {
+        return;
+    }
     if (allowedMovementKeys.has(key)) {
         event.preventDefault();
         keys.add(key);
@@ -1298,6 +1467,34 @@ navigationButtons.forEach((button) => {
             showScreen(targetScreen);
         }
     });
+});
+
+usernameForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const username = usernameInput.value.trim().replace(/\s+/g, " ").slice(0, 16);
+
+    if (!username) {
+        usernameError.textContent = "Enter a username before starting.";
+        usernameInput.focus();
+        return;
+    }
+    if (!/^[A-Za-z0-9 _-]+$/.test(username)) {
+        usernameError.textContent = "Use letters, numbers, spaces, hyphens, or underscores.";
+        usernameInput.focus();
+        return;
+    }
+
+    currentUsername = username;
+    usernameInput.value = username;
+    usernameError.textContent = "";
+
+    try {
+        localStorage.setItem("biohazardUsername", username);
+    } catch (error) {
+        console.warn("Username could not be saved in this browser context.", error);
+    }
+
+    showScreen("gameplay");
 });
 
 displayHighScore();
