@@ -16,6 +16,7 @@ Set in a quarantined city overrun by infected creatures, players must survive en
 - WASD or arrow-key controls on desktop.
 - Touch joystick controls on mobile.
 - Pause and resume support.
+- Background music and synthesized retro sound effects with volume and mute controls.
 - Username-based top-10 leaderboard stored locally in the browser.
 
 ## Running the game

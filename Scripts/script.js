@@ -17,6 +17,220 @@ const usernameForm = document.querySelector("#username-form");
 const usernameInput = document.querySelector("#username-input");
 const usernameError = document.querySelector("#username-error");
 const leaderboardList = document.querySelector("#leaderboard-list");
+const audioToggle = document.querySelector("#audio-toggle");
+const volumeSlider = document.querySelector("#volume-slider");
+const backgroundMusic = document.querySelector("#background-music");
+
+/* --- Audio --- */
+const audioManager = (() => {
+    const music = backgroundMusic;
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    let audioContext = null;
+    let masterGain = null;
+    let muted = false;
+    let volume = 0.35;
+
+    try {
+        muted = localStorage.getItem("biohazardAudioMuted") === "true";
+        const savedVolume = localStorage.getItem("biohazardAudioVolume");
+        if (savedVolume !== null) {
+            const parsedVolume = Number(savedVolume);
+            if (Number.isFinite(parsedVolume)) {
+                volume = Math.min(1, Math.max(0, parsedVolume));
+            }
+        }
+    } catch (error) {
+        console.warn("Audio preferences could not be loaded.", error);
+    }
+
+    music.loop = true;
+    music.preload = "auto";
+    music.addEventListener("error", () => {
+        console.error("Background music failed to load.", music.error);
+    });
+
+    function updateMusicVolume() {
+        music.volume = muted ? 0 : volume;
+        if (masterGain) {
+            masterGain.gain.value = muted ? 0 : volume;
+        }
+    }
+
+    function ensureAudioContext() {
+        if (!AudioContextConstructor) {
+            return null;
+        }
+        if (!audioContext) {
+            audioContext = new AudioContextConstructor();
+            masterGain = audioContext.createGain();
+            masterGain.connect(audioContext.destination);
+            updateMusicVolume();
+        }
+        if (audioContext.state === "suspended") {
+            audioContext.resume();
+        }
+        return audioContext;
+    }
+
+    function playTone(startFrequency, endFrequency, duration, type = "square", level = 0.08) {
+        if (muted) {
+            return;
+        }
+
+        const context = ensureAudioContext();
+        if (!context) {
+            return;
+        }
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const now = context.currentTime;
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(startFrequency, now);
+        oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), now + duration);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(level, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        oscillator.connect(gain);
+        gain.connect(masterGain);
+        oscillator.start(now);
+        oscillator.stop(now + duration);
+    }
+
+    function playNoise(duration = 0.08, level = 0.06) {
+        if (muted) {
+            return;
+        }
+
+        const context = ensureAudioContext();
+        if (!context) {
+            return;
+        }
+        const buffer = context.createBuffer(1, context.sampleRate * duration, context.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let index = 0; index < data.length; index += 1) {
+            data[index] = Math.random() * 2 - 1;
+        }
+
+        const source = context.createBufferSource();
+        const filter = context.createBiquadFilter();
+        const gain = context.createGain();
+        const now = context.currentTime;
+        filter.type = "bandpass";
+        filter.frequency.value = 1200;
+        gain.gain.setValueAtTime(level, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        source.buffer = buffer;
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(masterGain);
+        source.start(now);
+    }
+
+    function play(effect) {
+        switch (effect) {
+            case "shoot":
+                playNoise(0.06, 0.055);
+                playTone(180, 70, 0.08, "sawtooth", 0.045);
+                break;
+            case "hit":
+                playTone(150, 70, 0.06, "square", 0.04);
+                break;
+            case "player-hit":
+                playTone(110, 45, 0.18, "sawtooth", 0.09);
+                break;
+            case "pickup":
+                playTone(420, 760, 0.12, "square", 0.055);
+                break;
+            case "level-up":
+                playTone(330, 660, 0.18, "triangle", 0.08);
+                setTimeout(() => playTone(660, 990, 0.2, "triangle", 0.07), 90);
+                break;
+            case "boss":
+                playTone(90, 35, 0.5, "sawtooth", 0.1);
+                break;
+            case "pause":
+                playTone(300, 180, 0.14, "square", 0.06);
+                break;
+            case "resume":
+                playTone(180, 360, 0.14, "square", 0.06);
+                break;
+            case "game-over":
+                playTone(260, 55, 0.65, "sawtooth", 0.09);
+                break;
+            default:
+                break;
+        }
+    }
+
+    function startMusic() {
+        if (muted) {
+            return;
+        }
+        updateMusicVolume();
+        if (music.readyState === 0) {
+            music.load();
+        }
+        const playback = music.play();
+        if (playback) {
+            playback.catch((error) => {
+                console.warn("Background music could not start. Press Sound to retry.", error);
+            });
+        }
+    }
+
+    function stopMusic() {
+        music.pause();
+        music.currentTime = 0;
+    }
+
+    function pauseMusic() {
+        music.pause();
+    }
+
+    function resumeMusic() {
+        if (!muted) {
+            startMusic();
+        }
+    }
+
+    function setMuted(nextMuted) {
+        muted = nextMuted;
+        updateMusicVolume();
+        if (muted) {
+            pauseMusic();
+        } else {
+            startMusic();
+        }
+        try {
+            localStorage.setItem("biohazardAudioMuted", String(muted));
+        } catch (error) {
+            console.warn("Audio mute preference could not be saved.", error);
+        }
+    }
+
+    function setVolume(nextVolume) {
+        volume = Math.min(1, Math.max(0, nextVolume));
+        updateMusicVolume();
+        try {
+            localStorage.setItem("biohazardAudioVolume", String(volume));
+        } catch (error) {
+            console.warn("Audio volume preference could not be saved.", error);
+        }
+    }
+
+    return {
+        play,
+        startMusic,
+        stopMusic,
+        pauseMusic,
+        resumeMusic,
+        setMuted,
+        setVolume,
+        isMuted: () => muted,
+        getVolume: () => volume
+    };
+})();
 
 /* --- Sprite & GIF Asset Loader --- */
 function loadSprite(src) {
@@ -302,9 +516,11 @@ function showScreen(screenId) {
         requestAnimationFrame(() => {
             resizeCanvas();
             startGame();
+            audioManager.startMusic();
         });
     } else {
         stopGame();
+        audioManager.stopMusic();
     }
 }
 
@@ -521,6 +737,12 @@ function togglePause(forcePause) {
     isPaused = nextPauseState;
     pauseOverlay.hidden = !isPaused;
     pauseButton.textContent = isPaused ? "Resume" : "Pause";
+    audioManager.play(isPaused ? "pause" : "resume");
+    if (isPaused) {
+        audioManager.pauseMusic();
+    } else {
+        audioManager.resumeMusic();
+    }
 
     if (isPaused) {
         gameIsRunning = false;
@@ -630,6 +852,7 @@ function updateSurvival(deltaTime) {
 
     if (survivalTime >= nextBossTime) {
         spawnEnemy("tyrant");
+        audioManager.play("boss");
         nextBossTime += 60;
     }
 
@@ -658,6 +881,7 @@ function updateEnemies(deltaTime) {
         if (distance < enemy.radius + player.width / 2 && player.damageCooldown === 0) {
             player.health = Math.max(0, player.health - enemy.damage);
             player.damageCooldown = 0.75;
+            audioManager.play("player-hit");
             updateHealthBar();
 
             if (player.health === 0) {
@@ -777,6 +1001,7 @@ function updateCombat(deltaTime) {
             if (!projectile.hit && distance < projectile.radius + enemy.radius) {
                 enemy.health -= projectile.damage;
                 projectile.hit = true;
+                audioManager.play("hit");
                 impactEffects.push({ x: enemy.x, y: enemy.y, life: 0.16, kind: "blood" });
             }
         });
@@ -830,6 +1055,7 @@ function fireHandgun(target) {
 
     player.isFiring = true;
     player.fireTimer = 0.14;
+    audioManager.play("shoot");
 
     for (let index = 0; index < handgun.projectileCount; index += 1) {
         const spread = (index - (handgun.projectileCount - 1) / 2) * 0.12;
@@ -857,6 +1083,7 @@ function updateExperience() {
         if (distance <= player.pickupRange) {
             player.experience += orb.value;
             experienceOrbs.splice(index, 1);
+            audioManager.play("pickup");
         }
     }
 
@@ -888,6 +1115,7 @@ function openLevelUpOverlay() {
     levelUpPending = true;
     gameIsRunning = false;
     resetJoystick();
+    audioManager.play("level-up");
     renderUpgradeChoices();
     document.querySelector("#level-up-overlay").hidden = false;
 }
@@ -933,6 +1161,7 @@ function updateHealthBar() {
 function finishGame() {
     gameIsRunning = false;
     resetJoystick();
+    audioManager.play("game-over");
     const result = saveLeaderboardEntry();
     const personalBest = getPersonalBestForUsername();
     document.querySelector("#final-score").textContent = formatScore(score);
@@ -1407,6 +1636,17 @@ resumeButton.addEventListener("click", () => {
     togglePause(false);
 });
 
+audioToggle.addEventListener("click", () => {
+    const muted = !audioManager.isMuted();
+    audioManager.setMuted(muted);
+    audioToggle.textContent = muted ? "Sound: Off" : "Sound: On";
+    audioToggle.setAttribute("aria-pressed", String(muted));
+});
+
+volumeSlider.addEventListener("input", () => {
+    audioManager.setVolume(Number(volumeSlider.value));
+});
+
 navigationButtons.forEach((button) => {
     button.addEventListener("click", () => {
         const targetScreen = button.getAttribute("data-screen");
@@ -1441,8 +1681,12 @@ usernameForm.addEventListener("submit", (event) => {
         console.warn("Username could not be saved in this browser context.", error);
     }
 
+    audioManager.startMusic();
     showScreen("gameplay");
 });
 
+volumeSlider.value = String(audioManager.getVolume());
+audioToggle.textContent = audioManager.isMuted() ? "Sound: Off" : "Sound: On";
+audioToggle.setAttribute("aria-pressed", String(audioManager.isMuted()));
 renderLeaderboard();
 resizeCanvas();

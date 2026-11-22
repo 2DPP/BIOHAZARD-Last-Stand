@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="Styles/style.css">
 </head>
 <body>
+    <audio id="background-music" src="assets/Sfx/background/bgmBH.mp3" loop preload="auto"></audio>
     <main class="game-shell">
         <section id="main-menu" class="screen screen--active" aria-labelledby="game-title">
             <div class="scanlines" aria-hidden="true"></div>
@@ -19,6 +20,13 @@
                 <button class="menu-button" data-screen="instructions">Instructions</button>
                 <button class="menu-button" data-screen="high-scores">High Scores</button>
             </nav>
+            <div class="audio-controls" aria-label="Audio controls">
+                <button id="audio-toggle" class="audio-button" type="button" aria-pressed="false">Sound: On</button>
+                <label class="volume-control" for="volume-slider">
+                    <span>Volume</span>
+                    <input id="volume-slider" type="range" min="0" max="1" step="0.05" value="0.35">
+                </label>
+            </div>
             <p class="version">BUILD 08 // MOBILE READY</p>
 
         </section>
