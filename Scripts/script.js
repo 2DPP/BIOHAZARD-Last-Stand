@@ -2,7 +2,6 @@
 
 const screens = document.querySelectorAll(".screen");
 const navigationButtons = document.querySelectorAll("[data-screen]");
-const highScoreValue = document.querySelector("#high-score-value");
 const canvasFrame = document.querySelector("#canvas-frame");
 const canvas = document.querySelector("#game-canvas");
 const context = canvas.getContext("2d");
@@ -49,24 +48,8 @@ const playerGif8 = {
     southeast: loadSprite("assets/sprite/player/southeast.gif")
 };
 
-// Existing PNG sprites kept as fallback & for enemies/effects/pickups/environment
+// Sprite assets used for enemies, effects, and pickups.
 const sprites = {
-    playerIdle: [
-        loadSprite("assets/sprite/player/player_idle-1.png"),
-        loadSprite("assets/sprite/player/player_idle-2.png")
-    ],
-    playerWalk: [
-        loadSprite("assets/sprite/player/player-walk-1.png"),
-        loadSprite("assets/sprite/player/player-walk-2.png"),
-        loadSprite("assets/sprite/player/player-walk-3.png"),
-        loadSprite("assets/sprite/player/player-walk-4.png"),
-        loadSprite("assets/sprite/player/player-walk-5.png"),
-        loadSprite("assets/sprite/player/player-walk-6.png")
-    ],
-    playerShoot: [
-        loadSprite("assets/sprite/player/player-shoot-1.png"),
-        loadSprite("assets/sprite/player/player-shoot-2.png")
-    ],
     zombieWalk: [
         loadSprite("assets/sprite/enemy/zombie-walk-1.png"),
         loadSprite("assets/sprite/enemy/zombie-walk-2.png"),
@@ -290,7 +273,7 @@ function showScreen(screenId) {
     });
 
     if (screenId === "high-scores") {
-        displayHighScore();
+        renderLeaderboard();
     }
 
     if (screenId === "username") {
@@ -325,31 +308,11 @@ function showScreen(screenId) {
     }
 }
 
-function displayHighScore() {
-    if (highScoreValue) {
-        highScoreValue.textContent = formatScore(getSavedHighScore());
-    }
-    renderLeaderboard();
-}
-
-function getSavedHighScore() {
-    try {
-        return Number.parseInt(localStorage.getItem("biohazardHighScore") || "0", 10);
-    } catch (error) {
-        console.warn("High scores are unavailable in this browser context.", error);
-        return 0;
-    }
-}
-
-function getSavedHighScoreForUsername() {
+function getPersonalBestForUsername() {
     const entry = getLeaderboard().find(
         (record) => record.username.toLowerCase() === currentUsername.toLowerCase()
     );
     return entry ? entry.score : score;
-}
-
-function saveHighScore() {
-    return getSavedHighScore();
 }
 
 function formatScore(value) {
@@ -433,7 +396,6 @@ function saveLeaderboardEntry() {
 
     try {
         localStorage.setItem("biohazardLeaderboard", JSON.stringify(leaderboard.slice(0, 10)));
-        localStorage.setItem("biohazardHighScore", String(Math.max(score, getSavedHighScore())));
     } catch (error) {
         console.warn("Leaderboard could not be saved in this browser context.", error);
     }
@@ -972,7 +934,7 @@ function finishGame() {
     gameIsRunning = false;
     resetJoystick();
     const result = saveLeaderboardEntry();
-    const personalBest = getSavedHighScoreForUsername();
+    const personalBest = getPersonalBestForUsername();
     document.querySelector("#final-score").textContent = formatScore(score);
     document.querySelector("#final-time").textContent = formatSurvivalTime();
     document.querySelector("#final-kills").textContent = String(kills).padStart(3, "0");
@@ -1214,29 +1176,15 @@ function drawPlayer() {
     if (isSpriteReady(gifSprite)) {
         context.drawImage(gifSprite, -spriteW / 2, -spriteH / 2, spriteW, spriteH);
     } else {
-        const fallbackImg = player.isFiring
-            ? getFrameFromList(sprites.playerShoot, 14)
-            : player.isMoving
-                ? getFrameFromList(sprites.playerWalk, 10)
-                : getFrameFromList(sprites.playerIdle, 3);
-
-        if (isSpriteReady(fallbackImg)) {
-            const shouldFlip = facing8 === "west" || facing8 === "northwest" || facing8 === "southwest";
-            if (shouldFlip) {
-                context.scale(-1, 1);
-            }
-            context.drawImage(fallbackImg, -spriteW / 2, -spriteH / 2, spriteW, spriteH);
-        } else {
-            context.fillStyle = "#c8c59d";
-            context.fillRect(-6, -13, 12, 9);
-            context.fillStyle = "#63745c";
-            context.fillRect(-9, -4, 18, 19);
-            context.fillStyle = "#9b3b32";
-            context.fillRect(-9, 8, 18, 5);
-            context.fillStyle = "#1b211a";
-            context.fillRect(-8, 15, 6, 7);
-            context.fillRect(2, 15, 6, 7);
-        }
+        context.fillStyle = "#c8c59d";
+        context.fillRect(-6, -13, 12, 9);
+        context.fillStyle = "#63745c";
+        context.fillRect(-9, -4, 18, 19);
+        context.fillStyle = "#9b3b32";
+        context.fillRect(-9, 8, 18, 5);
+        context.fillStyle = "#1b211a";
+        context.fillRect(-8, 15, 6, 7);
+        context.fillRect(2, 15, 6, 7);
     }
 
     context.restore();
@@ -1496,5 +1444,5 @@ usernameForm.addEventListener("submit", (event) => {
     showScreen("gameplay");
 });
 
-displayHighScore();
+renderLeaderboard();
 resizeCanvas();
