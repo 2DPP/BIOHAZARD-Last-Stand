@@ -19,14 +19,21 @@ const usernameError = document.querySelector("#username-error");
 const leaderboardList = document.querySelector("#leaderboard-list");
 const audioToggle = document.querySelector("#audio-toggle");
 const volumeSlider = document.querySelector("#volume-slider");
-const backgroundMusic = document.querySelector("#background-music");
-
 /* --- Audio --- */
 const audioManager = (() => {
-    const music = backgroundMusic;
+    const musicUrl = "assets/Sfx/background/bgmBH.mp3";
+    const musicCrossfadeDuration = 2;
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
     let audioContext = null;
     let masterGain = null;
+    let musicGain = null;
+    let musicBuffer = null;
+    let activeMusicSource = null;
+    let activeMusicGain = null;
+    let musicPosition = 0;
+    let musicStartedAt = 0;
+    let musicPlaying = false;
+    let musicCrossfadeTimer = null;
     let muted = false;
     let volume = 0.35;
 
@@ -43,14 +50,10 @@ const audioManager = (() => {
         console.warn("Audio preferences could not be loaded.", error);
     }
 
-    music.loop = true;
-    music.preload = "auto";
-    music.addEventListener("error", () => {
-        console.error("Background music failed to load.", music.error);
-    });
-
     function updateMusicVolume() {
-        music.volume = muted ? 0 : volume;
+        if (musicGain) {
+            musicGain.gain.setTargetAtTime(muted ? 0 : volume, audioContext.currentTime, 0.02);
+        }
         if (masterGain) {
             masterGain.gain.value = muted ? 0 : volume;
         }
@@ -64,12 +67,123 @@ const audioManager = (() => {
             audioContext = new AudioContextConstructor();
             masterGain = audioContext.createGain();
             masterGain.connect(audioContext.destination);
+            musicGain = audioContext.createGain();
+            musicGain.connect(audioContext.destination);
             updateMusicVolume();
         }
         if (audioContext.state === "suspended") {
             audioContext.resume();
         }
         return audioContext;
+    }
+
+    async function loadMusic() {
+        if (musicBuffer) {
+            return musicBuffer;
+        }
+        const context = ensureAudioContext();
+        if (!context) {
+            return null;
+        }
+        try {
+            const response = await fetch(musicUrl);
+            if (!response.ok) {
+                throw new Error(`Music request failed: ${response.status}`);
+            }
+            const encodedBuffer = await response.arrayBuffer();
+            musicBuffer = await context.decodeAudioData(encodedBuffer);
+            return musicBuffer;
+        } catch (error) {
+            console.error("Background music could not be loaded.", error);
+            return null;
+        }
+    }
+
+    function clearCrossfadeTimer() {
+        if (musicCrossfadeTimer !== null) {
+            clearTimeout(musicCrossfadeTimer);
+            musicCrossfadeTimer = null;
+        }
+    }
+
+    function scheduleCrossfade() {
+        if (!musicPlaying || !musicBuffer) {
+            return;
+        }
+        clearCrossfadeTimer();
+        const crossfade = Math.min(musicCrossfadeDuration, musicBuffer.duration / 4);
+        const position = getCurrentMusicPosition();
+        const delay = Math.max(0.1, musicBuffer.duration - position - crossfade);
+        musicCrossfadeTimer = setTimeout(crossfadeMusic, delay * 1000);
+    }
+
+    function getCurrentMusicPosition() {
+        if (!musicPlaying || !audioContext) {
+            return musicPosition;
+        }
+        return Math.min(
+            musicBuffer ? musicBuffer.duration : 0,
+            musicPosition + (audioContext.currentTime - musicStartedAt)
+        );
+    }
+
+    function startMusicSource(offset = 0) {
+        if (!musicBuffer) {
+            return;
+        }
+        const context = ensureAudioContext();
+        if (!context) {
+            return;
+        }
+        clearCrossfadeTimer();
+        const source = context.createBufferSource();
+        const gain = context.createGain();
+        const safeOffset = Math.min(Math.max(0, offset), Math.max(0, musicBuffer.duration - 0.05));
+        source.buffer = musicBuffer;
+        gain.gain.setValueAtTime(1, context.currentTime);
+        source.connect(gain);
+        gain.connect(musicGain);
+        source.start(context.currentTime, safeOffset);
+        activeMusicSource = source;
+        activeMusicGain = gain;
+        musicPosition = safeOffset;
+        musicStartedAt = context.currentTime;
+        musicPlaying = true;
+        scheduleCrossfade();
+    }
+
+    function crossfadeMusic() {
+        if (!musicPlaying || !musicBuffer || muted) {
+            return;
+        }
+        const context = ensureAudioContext();
+        if (!context) {
+            return;
+        }
+        const crossfade = Math.min(musicCrossfadeDuration, musicBuffer.duration / 4);
+        const oldSource = activeMusicSource;
+        const oldGain = activeMusicGain;
+        const nextSource = context.createBufferSource();
+        const nextGain = context.createGain();
+        const now = context.currentTime;
+
+        nextSource.buffer = musicBuffer;
+        nextGain.gain.setValueAtTime(0, now);
+        nextGain.gain.linearRampToValueAtTime(1, now + crossfade);
+        nextSource.connect(nextGain);
+        nextGain.connect(musicGain);
+        nextSource.start(now, 0);
+
+        oldGain.gain.cancelScheduledValues(now);
+        oldGain.gain.setValueAtTime(1, now);
+        oldGain.gain.linearRampToValueAtTime(0, now + crossfade);
+        oldSource.stop(now + crossfade);
+
+        activeMusicSource = nextSource;
+        activeMusicGain = nextGain;
+        musicPosition = 0;
+        musicStartedAt = now;
+        scheduleCrossfade();
     }
 
     function playTone(startFrequency, endFrequency, duration, type = "square", level = 0.08) {
@@ -168,29 +282,57 @@ const audioManager = (() => {
             return;
         }
         updateMusicVolume();
-        if (music.readyState === 0) {
-            music.load();
+        ensureAudioContext();
+        if (musicPlaying) {
+            return;
         }
-        const playback = music.play();
-        if (playback) {
-            playback.catch((error) => {
-                console.warn("Background music could not start. Press Sound to retry.", error);
-            });
-        }
+        loadMusic().then((buffer) => {
+            if (buffer && !muted) {
+                startMusicSource(musicPosition);
+            }
+        });
     }
 
     function stopMusic() {
-        music.pause();
-        music.currentTime = 0;
+        clearCrossfadeTimer();
+        if (activeMusicSource) {
+            try {
+                activeMusicSource.stop();
+            } catch (error) {
+                // The source may already have stopped during a crossfade.
+            }
+        }
+        activeMusicSource = null;
+        activeMusicGain = null;
+        musicPlaying = false;
+        musicPosition = 0;
+        if (audioContext && audioContext.state !== "closed") {
+            audioContext.suspend();
+        }
     }
 
     function pauseMusic() {
-        music.pause();
+        if (!musicPlaying) {
+            return;
+        }
+        musicPosition = getCurrentMusicPosition();
+        clearCrossfadeTimer();
+        if (audioContext && audioContext.state === "running") {
+            audioContext.suspend();
+        }
     }
 
     function resumeMusic() {
         if (!muted) {
-            startMusic();
+            ensureAudioContext();
+            if (musicPlaying && audioContext) {
+                audioContext.resume().then(() => {
+                    musicStartedAt = audioContext.currentTime;
+                    scheduleCrossfade();
+                });
+            } else {
+                startMusic();
+            }
         }
     }
 
