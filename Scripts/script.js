@@ -1486,7 +1486,7 @@ function drawUrbanEnvironment() {
                 }
             }
 
-            // Soften contrast & darken floor so player, zombies, and herbs stand out clearly
+            // Soften contrast & darken floor so player, zombies stand out clearly
             context.fillStyle = "rgba(16, 23, 21, 0.58)";
             context.fillRect(innerMinX, innerMinY, innerMaxX - innerMinX, innerMaxY - innerMinY);
             context.restore();
