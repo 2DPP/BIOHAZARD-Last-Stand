@@ -1,5 +1,10 @@
 "use strict";
 
+/* ============================================================
+   PART 1: DOM REFERENCES
+   Locate and store the HTML elements used by menus, controls,
+   the canvas, audio settings, and gameplay HUD.
+   ============================================================ */
 const screens = document.querySelectorAll(".screen");
 const navigationButtons = document.querySelectorAll("[data-screen]");
 const canvasFrame = document.querySelector("#canvas-frame");
@@ -19,7 +24,12 @@ const usernameError = document.querySelector("#username-error");
 const leaderboardList = document.querySelector("#leaderboard-list");
 const audioToggle = document.querySelector("#audio-toggle");
 const volumeSlider = document.querySelector("#volume-slider");
-/* --- Audio --- */
+
+/* ============================================================
+   PART 2: AUDIO SYSTEM
+   Loads the background track, creates smooth crossfades, and
+   generates gameplay sound effects with the Web Audio API.
+   ============================================================ */
 const audioManager = (() => {
     const musicUrl = "assets/Sfx/background/bgmBH.mp3";
     const musicCrossfadeDuration = 2;
@@ -374,7 +384,10 @@ const audioManager = (() => {
     };
 })();
 
-/* --- Sprite & GIF Asset Loader --- */
+/* ============================================================
+   PART 3: SPRITE AND ASSET LOADING
+   Loads player, enemy, effect, pickup, and environment assets.
+   ============================================================ */
 function loadSprite(src) {
     const img = new Image();
     img.src = src;
@@ -392,7 +405,7 @@ function getFrameFromList(frameList, fps = 8, offset = 0) {
     return ready[idx];
 }
 
-// 8-direction GIF sprites for character facing & firing (no floating gun overlay)
+/* --- 8-direction player sprites --- */
 const playerGif8 = {
     east: loadSprite("assets/sprite/player/east.gif"),
     northeast: loadSprite("assets/sprite/player/northeast.gif"),
@@ -404,7 +417,7 @@ const playerGif8 = {
     southeast: loadSprite("assets/sprite/player/southeast.gif")
 };
 
-// Sprite assets used for enemies, effects, and pickups.
+/* --- Enemy, effect, pickup, and environment sprites --- */
 const sprites = {
     zombieWalk: [
         loadSprite("assets/sprite/enemy/zombie-walk-1.png"),
@@ -446,6 +459,11 @@ const sprites = {
     
 };
 
+/* ============================================================
+   PART 4: WORLD, PLAYER, AND GAMEPLAY DATA
+   Defines the map size, player attributes, camera, joystick,
+   enemies, handgun, upgrades, and runtime game variables.
+   ============================================================ */
 const keys = new Set();
 const world = {
     width: 3200,
@@ -564,6 +582,11 @@ const allowedMovementKeys = new Set([
     "arrowright"
 ]);
 
+/* ============================================================
+   PART 5: SHARED INPUT AND AIMING HELPERS
+   Converts movement vectors into 8-direction facing values and
+   keeps the player aimed toward the nearest enemy.
+   ============================================================ */
 function getDirection8FromVector(dx, dy) {
     if (Math.hypot(dx, dy) <= 0.05) {
         return null;
@@ -594,7 +617,11 @@ function updateAimFacing() {
     }
 }
 
-/* --- Responsive Canvas Sizing (Non-Distorting) --- */
+/* ============================================================
+   PART 6: SCREEN NAVIGATION AND CANVAS RESIZING
+   Switches menu screens, validates gameplay access, updates the
+   camera viewport, and resizes the canvas without distortion.
+   ============================================================ */
 function resizeCanvas() {
     if (!canvasFrame) {
         return;
@@ -666,6 +693,11 @@ function showScreen(screenId) {
     }
 }
 
+/* ============================================================
+   PART 7: USERNAME AND LOCAL LEADERBOARD
+   Saves usernames and completed runs using browser localStorage,
+   validates stored data, merges duplicate names, and renders ranks.
+   ============================================================ */
 function getPersonalBestForUsername() {
     const entry = getLeaderboard().find(
         (record) => record.username.toLowerCase() === currentUsername.toLowerCase()
@@ -802,6 +834,10 @@ function renderLeaderboard() {
     });
 }
 
+/* ============================================================
+   PART 8: RUN LIFECYCLE AND PAUSE CONTROL
+   Starts, resets, stops, restarts, pauses, and resumes a run.
+   ============================================================ */
 function startGame() {
     player.x = world.width / 2;
     player.y = world.height / 2;
@@ -899,6 +935,11 @@ function togglePause(forcePause) {
     }
 }
 
+/* ============================================================
+   PART 9: MAIN GAME LOOP
+   Runs the frame-by-frame update cycle for movement, survival,
+   enemies, combat, experience, and rendering.
+   ============================================================ */
 function gameLoop(currentTime) {
     if (!gameIsRunning) {
         animationFrameId = null;
@@ -927,6 +968,11 @@ function gameLoop(currentTime) {
     animationFrameId = requestAnimationFrame(gameLoop);
 }
 
+/* ============================================================
+   PART 10: PLAYER MOVEMENT AND CAMERA
+   Handles keyboard/touch movement, world boundaries, aiming,
+   and camera-follow behavior.
+   ============================================================ */
 function updatePlayer(deltaTime) {
     let horizontalDirection = 0;
     let verticalDirection = 0;
@@ -983,6 +1029,10 @@ function updateCamera() {
     camera.y = Math.max(0, Math.min(world.height - camera.viewHeight, player.y - camera.viewHeight / 2));
 }
 
+/* ============================================================
+   PART 11: SURVIVAL, SCORING, AND TIME EVENTS
+   Tracks the survival timer, minute bonuses, and boss schedule.
+   ============================================================ */
 function updateSurvival(deltaTime) {
     survivalTime += deltaTime;
     const completedMinutes = Math.floor(survivalTime / 60);
@@ -1001,6 +1051,11 @@ function updateSurvival(deltaTime) {
     updateScoreboard();
 }
 
+/* ============================================================
+   PART 12: ENEMY SPAWNING AND ENEMY BEHAVIOR
+   Creates enemy waves, moves enemies toward the player, applies
+   contact damage, and removes defeated enemies.
+   ============================================================ */
 function updateEnemies(deltaTime) {
     enemySpawnTimer -= deltaTime;
     if (enemySpawnTimer <= 0) {
@@ -1112,6 +1167,11 @@ function removeDefeatedEnemies() {
     }
 }
 
+/* ============================================================
+   PART 13: WEAPON AND PROJECTILE COMBAT
+   Finds the nearest enemy, fires projectiles, applies damage,
+   removes projectiles, and cleans up visual effects.
+   ============================================================ */
 function updateCombat(deltaTime) {
     handgunCooldown = Math.max(0, handgunCooldown - deltaTime);
 
@@ -1215,6 +1275,11 @@ function fireHandgun(target) {
     }
 }
 
+/* ============================================================
+   PART 14: EXPERIENCE, LEVEL-UP, AND UPGRADES
+   Collects XP, opens upgrade choices, applies selected upgrades,
+   and updates the HUD progress indicators.
+   ============================================================ */
 function updateExperience() {
     for (let index = experienceOrbs.length - 1; index >= 0; index -= 1) {
         const orb = experienceOrbs[index];
@@ -1292,6 +1357,7 @@ function getRandomUpgrades(amount) {
     return [...upgrades].sort(() => Math.random() - 0.5).slice(0, amount);
 }
 
+/* --- HUD and health updates --- */
 function updateHealthBar() {
     const healthBar = document.querySelector("#health-bar");
     const healthValue = document.querySelector("#health-value");
@@ -1300,6 +1366,7 @@ function updateHealthBar() {
     healthValue.textContent = `${player.health}/${player.maxHealth}`;
 }
 
+/* --- Game over statistics and leaderboard submission --- */
 function finishGame() {
     gameIsRunning = false;
     resetJoystick();
@@ -1330,7 +1397,11 @@ function updateScoreboard() {
     document.querySelector("#bosses-value").textContent = String(bossesDefeated).padStart(2, "0");
 }
 
-/* --- Rendering with Viewport Culling, Tiled Floor & 8-Way GIF Character --- */
+/* ============================================================
+   PART 15: CANVAS RENDERING
+   Draws the urban map, camera viewport, pickups, enemies,
+   projectiles, impact effects, and the animated player.
+   ============================================================ */
 function drawGame() {
     context.save();
     context.translate(-camera.x, -camera.y);
@@ -1634,7 +1705,11 @@ function drawProjectile(projectile) {
     );
 }
 
-/* --- Multitouch Virtual Joystick --- */
+/* ============================================================
+   PART 16: MOBILE TOUCH JOYSTICK
+   Tracks touch input, clamps joystick movement, and resets
+   the virtual stick on touch end or cancellation.
+   ============================================================ */
 function resetJoystick() {
     joystick.active = false;
     joystick.touchId = null;
@@ -1730,7 +1805,11 @@ function handleTouchEnd(event) {
 canvasFrame.addEventListener("touchend", handleTouchEnd, { passive: false });
 canvasFrame.addEventListener("touchcancel", handleTouchEnd, { passive: false });
 
-/* --- Event Listeners --- */
+/* ============================================================
+   PART 17: KEYBOARD, BUTTON, AND WINDOW EVENTS
+   Connects player input, audio controls, navigation, pause,
+   browser resize, and automatic pause events.
+   ============================================================ */
 window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     const target = event.target;
@@ -1827,6 +1906,11 @@ usernameForm.addEventListener("submit", (event) => {
     showScreen("gameplay");
 });
 
+/* ============================================================
+   PART 18: APPLICATION INITIALIZATION
+   Loads saved audio settings, renders the leaderboard, and
+   prepares the initial canvas size on page startup.
+   ============================================================ */
 volumeSlider.value = String(audioManager.getVolume());
 audioToggle.textContent = audioManager.isMuted() ? "Sound: Off" : "Sound: On";
 audioToggle.setAttribute("aria-pressed", String(audioManager.isMuted()));
