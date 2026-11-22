@@ -39,73 +39,72 @@ function getFrameFromList(frameList, fps = 8, offset = 0) {
 
 // 8-direction GIF sprites for character facing & firing (no floating gun overlay)
 const playerGif8 = {
-    east: loadSprite("assets/east.gif"),
-    northeast: loadSprite("assets/northeast.gif"),
-    north: loadSprite("assets/north.gif"),
-    northwest: loadSprite("assets/northwest.gif"),
-    west: loadSprite("assets/west.gif"),
-    southwest: loadSprite("assets/southwest.gif"),
-    south: loadSprite("assets/south.gif"),
-    southeast: loadSprite("assets/southeast.gif")
+    east: loadSprite("assets/sprite/player/east.gif"),
+    northeast: loadSprite("assets/sprite/player/northeast.gif"),
+    north: loadSprite("assets/sprite/player/north.gif"),
+    northwest: loadSprite("assets/sprite/player/northwest.gif"),
+    west: loadSprite("assets/sprite/player/west.gif"),
+    southwest: loadSprite("assets/sprite/player/southwest.gif"),
+    south: loadSprite("assets/sprite/player/south.gif"),
+    southeast: loadSprite("assets/sprite/player/southeast.gif")
 };
 
 // Existing PNG sprites kept as fallback & for enemies/effects/pickups/environment
 const sprites = {
     playerIdle: [
-        loadSprite("assets/player_idle-1.png"),
-        loadSprite("assets/player_idle-2.png")
+        loadSprite("assets/sprite/player/player_idle-1.png"),
+        loadSprite("assets/sprite/player/player_idle-2.png")
     ],
     playerWalk: [
-        loadSprite("assets/player-walk-1.png"),
-        loadSprite("assets/player-walk-2.png"),
-        loadSprite("assets/player-walk-3.png"),
-        loadSprite("assets/player-walk-4.png"),
-        loadSprite("assets/player-walk-5.png"),
-        loadSprite("assets/player-walk-6.png")
+        loadSprite("assets/sprite/player/player-walk-1.png"),
+        loadSprite("assets/sprite/player/player-walk-2.png"),
+        loadSprite("assets/sprite/player/player-walk-3.png"),
+        loadSprite("assets/sprite/player/player-walk-4.png"),
+        loadSprite("assets/sprite/player/player-walk-5.png"),
+        loadSprite("assets/sprite/player/player-walk-6.png")
     ],
     playerShoot: [
-        loadSprite("assets/player-shoot-1.png"),
-        loadSprite("assets/player-shoot-2.png")
+        loadSprite("assets/sprite/player/player-shoot-1.png"),
+        loadSprite("assets/sprite/player/player-shoot-2.png")
     ],
     zombieWalk: [
-        loadSprite("assets/zombie-walk-1.png"),
-        loadSprite("assets/zombie-walk-2.png"),
-        loadSprite("assets/zombie-walk-3.png")
+        loadSprite("assets/sprite/enemy/zombie-walk-1.png"),
+        loadSprite("assets/sprite/enemy/zombie-walk-2.png"),
+        loadSprite("assets/sprite/enemy/zombie-walk-3.png")
     ],
     houndRun: [
-        loadSprite("assets/hound-run-1.png"),
-        loadSprite("assets/hound-run-2.png"),
-        loadSprite("assets/hound-run-3.png")
+        loadSprite("assets/sprite/enemy/hound-run-1.png"),
+        loadSprite("assets/sprite/enemy/hound-run-2.png"),
+        loadSprite("assets/sprite/enemy/hound-run-3.png")
     ],
     mutantWalk: [
-        loadSprite("assets/mutant-walk-1.png"),
-        loadSprite("assets/mutant-walk-2.png"),
-        loadSprite("assets/mutant-walk-3.png")
+        loadSprite("assets/sprite/enemy/mutant-walk-1.png"),
+        loadSprite("assets/sprite/enemy/mutant-walk-2.png"),
+        loadSprite("assets/sprite/enemy/mutant-walk-3.png")
     ],
-    tyrantIdle: loadSprite("assets/tyrant-idle.png"),
+    tyrantIdle: loadSprite("assets/sprite/enemy/tyrant-idle.png"),
     tyrantWalk: [
-        loadSprite("assets/tyrant-walk-1.png"),
-        loadSprite("assets/tyrant-walk-2.png"),
-        loadSprite("assets/tyrant-walk-3.png")
+        loadSprite("assets/sprite/enemy/tyrant-walk-1.png"),
+        loadSprite("assets/sprite/enemy/tyrant-walk-2.png"),
+        loadSprite("assets/sprite/enemy/tyrant-walk-3.png")
     ],
     fxExplosion: [
-        loadSprite("assets/fx-explosion-1.png"),
-        loadSprite("assets/fx-explosion-2.png"),
-        loadSprite("assets/fx-explosion-3.png")
+        loadSprite("assets/sprite/effects/fx-explosion-1.png"),
+        loadSprite("assets/sprite/effects/fx-explosion-2.png"),
+        loadSprite("assets/sprite/effects/fx-explosion-3.png")
     ],
     fxFlash: [
-        loadSprite("assets/fx-flash-1.png"),
-        loadSprite("assets/fx-flash-2.png")
+        loadSprite("assets/sprite/effects/fx-flash-1.png"),
+        loadSprite("assets/sprite/effects/fx-flash-2.png")
     ],
     fxBlood: [
-        loadSprite("assets/fx-blood-1.png"),
-        loadSprite("assets/fx-blood-2.png")
+        loadSprite("assets/sprite/effects/fx-blood-1.png"),
+        loadSprite("assets/sprite/effects/fx-blood-2.png")
     ],
-    itemHerbGreen: loadSprite("assets/item-herb-green.png"),
-    tileFloor: loadSprite("assets/tile-floor.png"),
-    propBuilding: loadSprite("assets/prop-building.png"),
-    propStreetLight: loadSprite("assets/prop-streetlight.png"),
-    propDebris: loadSprite("assets/prop-debris.png")
+    itemHerbGreen: loadSprite("assets/sprite/items/item-herb-green.png"),
+    tileFloor: loadSprite("assets/sprite/background/tile-floor.png"),
+    
+    
 };
 
 const keys = new Set();
