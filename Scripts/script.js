@@ -39,6 +39,13 @@ const audioManager = (() => {
         "ui-click": "assets/sfx/ui/menuButtons.wav",
         "ui-error": "assets/sfx/ui/invalidSelect.wav"
     };
+    const sfxVolumes = {
+        shoot: 0.2,
+        pickup: 0.6,
+        "game-over": 1.0,
+        "ui-click": 0.8,
+        "ui-error": 0.9
+    };
 
     const musicCrossfadeDuration = 2;
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
@@ -46,14 +53,17 @@ const audioManager = (() => {
     let masterGain = null;
     let musicGain = null;
     let musicBuffer = null;
+    let musicLoadPromise = null;
     const sfxBuffers = new Map();
     const sfxLoading = new Map();
 
+    const activeMusicSources = new Set();
     let activeMusicSource = null;
     let activeMusicGain = null;
     let musicPosition = 0;
     let musicStartedAt = 0;
     let musicPlaying = false;
+    let musicRequested = false;
     let musicCrossfadeTimer = null;
     let muted = false;
     let volume = 0.35;
@@ -160,22 +170,33 @@ const audioManager = (() => {
         if (musicBuffer) {
             return musicBuffer;
         }
+        if (musicLoadPromise) {
+            return musicLoadPromise;
+        }
         const ctx = ensureAudioContext();
         if (!ctx) {
             return null;
         }
-        try {
-            const response = await fetch(musicUrl);
-            if (!response.ok) {
-                throw new Error(`Music request failed: ${response.status}`);
-            }
-            const encodedBuffer = await response.arrayBuffer();
-            musicBuffer = await ctx.decodeAudioData(encodedBuffer);
-            return musicBuffer;
-        } catch (error) {
-            console.error("Background music could not be loaded.", error);
-            return null;
-        }
+        musicLoadPromise = fetch(musicUrl)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`Music request failed: ${response.status}`);
+                }
+                return response.arrayBuffer();
+            })
+            .then((encodedBuffer) => ctx.decodeAudioData(encodedBuffer))
+            .then((decodedBuffer) => {
+                musicBuffer = decodedBuffer;
+                musicLoadPromise = null;
+                return decodedBuffer;
+            })
+            .catch((error) => {
+                console.error("Background music could not be loaded.", error);
+                musicLoadPromise = null;
+                return null;
+            });
+
+        return musicLoadPromise;
     }
 
     function clearCrossfadeTimer() {
@@ -207,7 +228,7 @@ const audioManager = (() => {
     }
 
     function startMusicSource(offset = 0) {
-        if (!musicBuffer) {
+        if (!musicBuffer || !musicRequested) {
             return;
         }
         const ctx = ensureAudioContext();
@@ -222,6 +243,12 @@ const audioManager = (() => {
         gain.gain.setValueAtTime(1, ctx.currentTime);
         source.connect(gain);
         gain.connect(musicGain);
+
+        activeMusicSources.add(source);
+        source.onended = () => {
+            activeMusicSources.delete(source);
+        };
+
         source.start(ctx.currentTime, safeOffset);
         activeMusicSource = source;
         activeMusicGain = gain;
@@ -232,7 +259,7 @@ const audioManager = (() => {
     }
 
     function crossfadeMusic() {
-        if (!musicPlaying || !musicBuffer || muted) {
+        if (!musicPlaying || !musicBuffer || muted || !musicRequested) {
             return;
         }
         const ctx = ensureAudioContext();
@@ -251,12 +278,20 @@ const audioManager = (() => {
         nextGain.gain.linearRampToValueAtTime(1, now + crossfade);
         nextSource.connect(nextGain);
         nextGain.connect(musicGain);
+
+        activeMusicSources.add(nextSource);
+        nextSource.onended = () => {
+            activeMusicSources.delete(nextSource);
+        };
+
         nextSource.start(now, 0);
 
-        oldGain.gain.cancelScheduledValues(now);
-        oldGain.gain.setValueAtTime(1, now);
-        oldGain.gain.linearRampToValueAtTime(0, now + crossfade);
-        oldSource.stop(now + crossfade);
+        if (oldGain && oldSource) {
+            oldGain.gain.cancelScheduledValues(now);
+            oldGain.gain.setValueAtTime(1, now);
+            oldGain.gain.linearRampToValueAtTime(0, now + crossfade);
+            oldSource.stop(now + crossfade);
+        }
 
         activeMusicSource = nextSource;
         activeMusicGain = nextGain;
@@ -325,15 +360,16 @@ const audioManager = (() => {
 
         // Play custom .wav buffer if mapped
         if (Object.prototype.hasOwnProperty.call(sfxPaths, effect)) {
+            const effectGain = sfxVolumes[effect] ?? 1.0;
             const cachedBuffer = sfxBuffers.get(effect);
             if (cachedBuffer) {
-                playBuffer(cachedBuffer);
+                playBuffer(cachedBuffer, effectGain);
                 return;
             }
             // Load on demand if first interaction happened before preload completed
             loadSfxBuffer(effect).then((buffer) => {
                 if (buffer) {
-                    playBuffer(buffer);
+                    playBuffer(buffer, effectGain);
                 }
             });
             return;
@@ -366,6 +402,7 @@ const audioManager = (() => {
     }
 
     function startMusic() {
+        musicRequested = true;
         if (muted) {
             return;
         }
@@ -376,21 +413,27 @@ const audioManager = (() => {
             return;
         }
         loadMusic().then((buffer) => {
-            if (buffer && !muted) {
+            if (buffer && !muted && musicRequested && !musicPlaying && !document.querySelector("#gameplay").hidden) {
                 startMusicSource(musicPosition);
             }
         });
     }
 
     function stopMusic() {
+        musicRequested = false;
         clearCrossfadeTimer();
-        if (activeMusicSource) {
-            try {
-                activeMusicSource.stop();
-            } catch (error) {
-                // Source may have already stopped during crossfade.
-            }
+        if (audioContext && audioContext.state === "suspended") {
+            audioContext.resume();
         }
+        activeMusicSources.forEach((source) => {
+            try {
+                source.stop(0);
+                source.disconnect();
+            } catch (error) {
+                // Source already stopped
+            }
+        });
+        activeMusicSources.clear();
         activeMusicSource = null;
         activeMusicGain = null;
         musicPlaying = false;
@@ -1892,11 +1935,6 @@ canvasFrame.addEventListener("touchcancel", handleTouchEnd, { passive: false });
    Connects player input, audio controls, navigation, pause,
    browser resize, and automatic pause events.
    ============================================================ */
-/* ============================================================
-   PART 17: KEYBOARD, BUTTON, AND WINDOW EVENTS
-   Connects player input, audio controls, navigation, pause,
-   browser resize, and automatic pause events.
-   ============================================================ */
 window.addEventListener("pointerdown", () => {
     audioManager.preloadAllSfx();
 }, { once: true });
@@ -2002,7 +2040,6 @@ usernameForm.addEventListener("submit", (event) => {
         console.warn("Username could not be saved in this browser context.", error);
     }
 
-    audioManager.startMusic();
     showScreen("gameplay");
 });
 
