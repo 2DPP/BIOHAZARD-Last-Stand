@@ -39,10 +39,10 @@ const audioManager = (() => {
         "ui-click": "assets/sfx/ui/menuButtons.wav",
         "ui-error": "assets/sfx/ui/invalidSelect.wav",
         "player-hit": "assets/sfx/player/playerHurt1.WAV",
-        "enemy-dead-tyrant": "assets/sfx/enemy/tyrantDead.wav",
-        "enemy-dead-hound": "assets/sfx/enemy/houndDead.wav",
+        "enemy-dead-tyrant": "assets/sfx/enemy/tyrantDead.WAV",
+        "enemy-dead-hound": "assets/sfx/enemy/houndDead.WAV",
         "enemy-dead-mutant": "assets/sfx/enemy/deadMutant.WAV",
-        "enemy-dead-zombie": "assets/sfx/enemy/zombieDead.wav"
+        "enemy-dead-zombie": "assets/sfx/enemy/zombieDead.WAV"
     };
     const sfxVolumes = {
         shoot: 0.2,
