@@ -37,14 +37,24 @@ const audioManager = (() => {
         pickup: "assets/sfx/items/exp.wav",
         "game-over": "assets/sfx/ui/dead.wav",
         "ui-click": "assets/sfx/ui/menuButtons.wav",
-        "ui-error": "assets/sfx/ui/invalidSelect.wav"
+        "ui-error": "assets/sfx/ui/invalidSelect.wav",
+        "player-hit": "assets/sfx/player/playerHurt1.WAV",
+        "enemy-dead-tyrant": "assets/sfx/enemy/tyrantDead.wav",
+        "enemy-dead-hound": "assets/sfx/enemy/houndDead.wav",
+        "enemy-dead-mutant": "assets/sfx/enemy/deadMutant.WAV",
+        "enemy-dead-zombie": "assets/sfx/enemy/zombieDead.wav"
     };
     const sfxVolumes = {
         shoot: 0.2,
-        pickup: 0.6,
+        pickup: 0.5,
         "game-over": 1.0,
         "ui-click": 0.8,
-        "ui-error": 0.9
+        "ui-error": 0.9,
+        "player-hit": 0.6,
+        "enemy-dead-tyrant": 1.0,
+        "enemy-dead-hound": 0.6,
+        "enemy-dead-mutant": 0.7,
+        "enemy-dead-zombie": 0.5
     };
 
     const musicCrossfadeDuration = 2;
@@ -1269,6 +1279,16 @@ function removeDefeatedEnemies() {
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
         if (enemies[index].health <= 0) {
             const defeated = enemies[index];
+            if (defeated.type === "tyrant") {
+                audioManager.play("enemy-dead-tyrant");
+            } else if (defeated.type === "hound") {
+                audioManager.play("enemy-dead-hound");
+            } else if (defeated.type === "mutant") {
+                audioManager.play("enemy-dead-mutant");
+            } else {
+                audioManager.play("enemy-dead-zombie");
+            }
+
             impactEffects.push({
                 x: defeated.x,
                 y: defeated.y,
