@@ -27,17 +27,28 @@ const volumeSlider = document.querySelector("#volume-slider");
 
 /* ============================================================
    PART 2: AUDIO SYSTEM
-   Loads the background track, creates smooth crossfades, and
-   generates gameplay sound effects with the Web Audio API.
+   Loads the background track and .wav sound effects, creates
+   smooth crossfades, and plays buffered SFX via Web Audio API.
    ============================================================ */
 const audioManager = (() => {
-    const musicUrl = "assets/Sfx/background/bgmBH.mp3";
+    const musicUrl = "assets/sfx/background/bgmBH.mp3";
+    const sfxPaths = {
+        shoot: "assets/sfx/gun/gunShot.wav",
+        pickup: "assets/sfx/items/exp.wav",
+        "game-over": "assets/sfx/ui/dead.wav",
+        "ui-click": "assets/sfx/ui/menuButtons.wav",
+        "ui-error": "assets/sfx/ui/invalidSelect.wav"
+    };
+
     const musicCrossfadeDuration = 2;
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
     let audioContext = null;
     let masterGain = null;
     let musicGain = null;
     let musicBuffer = null;
+    const sfxBuffers = new Map();
+    const sfxLoading = new Map();
+
     let activeMusicSource = null;
     let activeMusicGain = null;
     let musicPosition = 0;
@@ -61,11 +72,11 @@ const audioManager = (() => {
     }
 
     function updateMusicVolume() {
-        if (musicGain) {
+        if (musicGain && audioContext) {
             musicGain.gain.setTargetAtTime(muted ? 0 : volume, audioContext.currentTime, 0.02);
         }
-        if (masterGain) {
-            masterGain.gain.value = muted ? 0 : volume;
+        if (masterGain && audioContext) {
+            masterGain.gain.setTargetAtTime(muted ? 0 : volume, audioContext.currentTime, 0.02);
         }
     }
 
@@ -87,12 +98,70 @@ const audioManager = (() => {
         return audioContext;
     }
 
+    async function loadSfxBuffer(effectName) {
+        if (sfxBuffers.has(effectName)) {
+            return sfxBuffers.get(effectName);
+        }
+        if (sfxLoading.has(effectName)) {
+            return sfxLoading.get(effectName);
+        }
+
+        const url = sfxPaths[effectName];
+        const ctx = ensureAudioContext();
+        if (!url || !ctx) {
+            return null;
+        }
+
+        const loadPromise = fetch(url)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`SFX request failed (${effectName}): ${response.status}`);
+                }
+                return response.arrayBuffer();
+            })
+            .then((arrayBuffer) => ctx.decodeAudioData(arrayBuffer))
+            .then((decodedBuffer) => {
+                sfxBuffers.set(effectName, decodedBuffer);
+                sfxLoading.delete(effectName);
+                return decodedBuffer;
+            })
+            .catch((error) => {
+                console.warn(`Could not load SFX "${effectName}" from ${url}:`, error);
+                sfxLoading.delete(effectName);
+                return null;
+            });
+
+        sfxLoading.set(effectName, loadPromise);
+        return loadPromise;
+    }
+
+    function preloadAllSfx() {
+        Object.keys(sfxPaths).forEach((effectName) => {
+            loadSfxBuffer(effectName);
+        });
+    }
+
+    function playBuffer(buffer, playbackGain = 1.0) {
+        const ctx = ensureAudioContext();
+        if (!ctx || !buffer || muted) {
+            return false;
+        }
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        source.buffer = buffer;
+        gain.gain.setValueAtTime(playbackGain, ctx.currentTime);
+        source.connect(gain);
+        gain.connect(masterGain);
+        source.start(ctx.currentTime);
+        return true;
+    }
+
     async function loadMusic() {
         if (musicBuffer) {
             return musicBuffer;
         }
-        const context = ensureAudioContext();
-        if (!context) {
+        const ctx = ensureAudioContext();
+        if (!ctx) {
             return null;
         }
         try {
@@ -101,7 +170,7 @@ const audioManager = (() => {
                 throw new Error(`Music request failed: ${response.status}`);
             }
             const encodedBuffer = await response.arrayBuffer();
-            musicBuffer = await context.decodeAudioData(encodedBuffer);
+            musicBuffer = await ctx.decodeAudioData(encodedBuffer);
             return musicBuffer;
         } catch (error) {
             console.error("Background music could not be loaded.", error);
@@ -141,23 +210,23 @@ const audioManager = (() => {
         if (!musicBuffer) {
             return;
         }
-        const context = ensureAudioContext();
-        if (!context) {
+        const ctx = ensureAudioContext();
+        if (!ctx) {
             return;
         }
         clearCrossfadeTimer();
-        const source = context.createBufferSource();
-        const gain = context.createGain();
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
         const safeOffset = Math.min(Math.max(0, offset), Math.max(0, musicBuffer.duration - 0.05));
         source.buffer = musicBuffer;
-        gain.gain.setValueAtTime(1, context.currentTime);
+        gain.gain.setValueAtTime(1, ctx.currentTime);
         source.connect(gain);
         gain.connect(musicGain);
-        source.start(context.currentTime, safeOffset);
+        source.start(ctx.currentTime, safeOffset);
         activeMusicSource = source;
         activeMusicGain = gain;
         musicPosition = safeOffset;
-        musicStartedAt = context.currentTime;
+        musicStartedAt = ctx.currentTime;
         musicPlaying = true;
         scheduleCrossfade();
     }
@@ -166,16 +235,16 @@ const audioManager = (() => {
         if (!musicPlaying || !musicBuffer || muted) {
             return;
         }
-        const context = ensureAudioContext();
-        if (!context) {
+        const ctx = ensureAudioContext();
+        if (!ctx) {
             return;
         }
         const crossfade = Math.min(musicCrossfadeDuration, musicBuffer.duration / 4);
         const oldSource = activeMusicSource;
         const oldGain = activeMusicGain;
-        const nextSource = context.createBufferSource();
-        const nextGain = context.createGain();
-        const now = context.currentTime;
+        const nextSource = ctx.createBufferSource();
+        const nextGain = ctx.createGain();
+        const now = ctx.currentTime;
 
         nextSource.buffer = musicBuffer;
         nextGain.gain.setValueAtTime(0, now);
@@ -200,14 +269,13 @@ const audioManager = (() => {
         if (muted) {
             return;
         }
-
-        const context = ensureAudioContext();
-        if (!context) {
+        const ctx = ensureAudioContext();
+        if (!ctx) {
             return;
         }
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        const now = context.currentTime;
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
 
         oscillator.type = type;
         oscillator.frequency.setValueAtTime(startFrequency, now);
@@ -225,21 +293,20 @@ const audioManager = (() => {
         if (muted) {
             return;
         }
-
-        const context = ensureAudioContext();
-        if (!context) {
+        const ctx = ensureAudioContext();
+        if (!ctx) {
             return;
         }
-        const buffer = context.createBuffer(1, context.sampleRate * duration, context.sampleRate);
+        const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
         const data = buffer.getChannelData(0);
         for (let index = 0; index < data.length; index += 1) {
             data[index] = Math.random() * 2 - 1;
         }
 
-        const source = context.createBufferSource();
-        const filter = context.createBiquadFilter();
-        const gain = context.createGain();
-        const now = context.currentTime;
+        const source = ctx.createBufferSource();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
         filter.type = "bandpass";
         filter.frequency.value = 1200;
         gain.gain.setValueAtTime(level, now);
@@ -252,19 +319,33 @@ const audioManager = (() => {
     }
 
     function play(effect) {
+        if (muted) {
+            return;
+        }
+
+        // Play custom .wav buffer if mapped
+        if (Object.prototype.hasOwnProperty.call(sfxPaths, effect)) {
+            const cachedBuffer = sfxBuffers.get(effect);
+            if (cachedBuffer) {
+                playBuffer(cachedBuffer);
+                return;
+            }
+            // Load on demand if first interaction happened before preload completed
+            loadSfxBuffer(effect).then((buffer) => {
+                if (buffer) {
+                    playBuffer(buffer);
+                }
+            });
+            return;
+        }
+
+        // Fallback synth effects for sounds without custom .wav files yet
         switch (effect) {
-            case "shoot":
-                playNoise(0.06, 0.055);
-                playTone(180, 70, 0.08, "sawtooth", 0.045);
-                break;
             case "hit":
                 playTone(150, 70, 0.06, "square", 0.04);
                 break;
             case "player-hit":
                 playTone(110, 45, 0.18, "sawtooth", 0.09);
-                break;
-            case "pickup":
-                playTone(420, 760, 0.12, "square", 0.055);
                 break;
             case "level-up":
                 playTone(330, 660, 0.18, "triangle", 0.08);
@@ -279,9 +360,6 @@ const audioManager = (() => {
             case "resume":
                 playTone(180, 360, 0.14, "square", 0.06);
                 break;
-            case "game-over":
-                playTone(260, 55, 0.65, "sawtooth", 0.09);
-                break;
             default:
                 break;
         }
@@ -293,6 +371,7 @@ const audioManager = (() => {
         }
         updateMusicVolume();
         ensureAudioContext();
+        preloadAllSfx();
         if (musicPlaying) {
             return;
         }
@@ -309,16 +388,13 @@ const audioManager = (() => {
             try {
                 activeMusicSource.stop();
             } catch (error) {
-                // The source may already have stopped during a crossfade.
+                // Source may have already stopped during crossfade.
             }
         }
         activeMusicSource = null;
         activeMusicGain = null;
         musicPlaying = false;
         musicPosition = 0;
-        if (audioContext && audioContext.state !== "closed") {
-            audioContext.suspend();
-        }
     }
 
     function pauseMusic() {
@@ -352,7 +428,11 @@ const audioManager = (() => {
         if (muted) {
             pauseMusic();
         } else {
-            startMusic();
+            ensureAudioContext();
+            preloadAllSfx();
+            if (!document.querySelector("#gameplay").hidden) {
+                startMusic();
+            }
         }
         try {
             localStorage.setItem("biohazardAudioMuted", String(muted));
@@ -373,6 +453,7 @@ const audioManager = (() => {
 
     return {
         play,
+        preloadAllSfx,
         startMusic,
         stopMusic,
         pauseMusic,
@@ -1342,6 +1423,7 @@ function renderUpgradeChoices() {
         option.className = "upgrade-option";
         option.innerHTML = `<strong>${upgrade.name}</strong><span>${upgrade.description}</span>`;
         option.addEventListener("click", () => {
+            audioManager.play("ui-click");
             upgrade.apply();
             updateHealthBar();
             closeLevelUpOverlay();
@@ -1810,6 +1892,15 @@ canvasFrame.addEventListener("touchcancel", handleTouchEnd, { passive: false });
    Connects player input, audio controls, navigation, pause,
    browser resize, and automatic pause events.
    ============================================================ */
+/* ============================================================
+   PART 17: KEYBOARD, BUTTON, AND WINDOW EVENTS
+   Connects player input, audio controls, navigation, pause,
+   browser resize, and automatic pause events.
+   ============================================================ */
+window.addEventListener("pointerdown", () => {
+    audioManager.preloadAllSfx();
+}, { once: true });
+
 window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     const target = event.target;
@@ -1850,10 +1941,12 @@ window.addEventListener("orientationchange", () => {
 });
 
 pauseButton.addEventListener("click", () => {
+    audioManager.play("ui-click");
     togglePause();
 });
 
 resumeButton.addEventListener("click", () => {
+    audioManager.play("ui-click");
     togglePause(false);
 });
 
@@ -1862,6 +1955,9 @@ audioToggle.addEventListener("click", () => {
     audioManager.setMuted(muted);
     audioToggle.textContent = muted ? "Sound: Off" : "Sound: On";
     audioToggle.setAttribute("aria-pressed", String(muted));
+    if (!muted) {
+        audioManager.play("ui-click");
+    }
 });
 
 volumeSlider.addEventListener("input", () => {
@@ -1870,6 +1966,7 @@ volumeSlider.addEventListener("input", () => {
 
 navigationButtons.forEach((button) => {
     button.addEventListener("click", () => {
+        audioManager.play("ui-click");
         const targetScreen = button.getAttribute("data-screen");
         if (targetScreen) {
             showScreen(targetScreen);
@@ -1882,16 +1979,19 @@ usernameForm.addEventListener("submit", (event) => {
     const username = usernameInput.value.trim().replace(/\s+/g, " ").slice(0, 16);
 
     if (!username) {
+        audioManager.play("ui-error");
         usernameError.textContent = "Enter a username before starting.";
         usernameInput.focus();
         return;
     }
     if (!/^[A-Za-z0-9 _-]+$/.test(username)) {
+        audioManager.play("ui-error");
         usernameError.textContent = "Use letters, numbers, spaces, hyphens, or underscores.";
         usernameInput.focus();
         return;
     }
 
+    audioManager.play("ui-click");
     currentUsername = username;
     usernameInput.value = username;
     usernameError.textContent = "";
