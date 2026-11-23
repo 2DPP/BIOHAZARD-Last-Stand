@@ -91,6 +91,7 @@ const audioManager = (() => {
         console.warn("Audio preferences could not be loaded.", error);
     }
 
+    // Updates the music and sound-effect volume levels.
     function updateMusicVolume() {
         if (musicGain && audioContext) {
             musicGain.gain.setTargetAtTime(muted ? 0 : volume, audioContext.currentTime, 0.02);
@@ -100,6 +101,7 @@ const audioManager = (() => {
         }
     }
 
+    // Creates and resumes the browser audio context.
     function ensureAudioContext() {
         if (!AudioContextConstructor) {
             return null;
@@ -118,6 +120,7 @@ const audioManager = (() => {
         return audioContext;
     }
 
+    // Loads one custom sound-effect file into an audio buffer.
     async function loadSfxBuffer(effectName) {
         if (sfxBuffers.has(effectName)) {
             return sfxBuffers.get(effectName);
@@ -132,6 +135,7 @@ const audioManager = (() => {
             return null;
         }
 
+        // Reuse this promise when the same effect is requested repeatedly.
         const loadPromise = fetch(url)
             .then((response) => {
                 if (!response.ok) {
@@ -155,12 +159,14 @@ const audioManager = (() => {
         return loadPromise;
     }
 
+    // Starts loading all available custom sound effects.
     function preloadAllSfx() {
         Object.keys(sfxPaths).forEach((effectName) => {
             loadSfxBuffer(effectName);
         });
     }
 
+    // Plays a loaded sound-effect buffer once.
     function playBuffer(buffer, playbackGain = 1.0) {
         const ctx = ensureAudioContext();
         if (!ctx || !buffer || muted) {
@@ -176,6 +182,7 @@ const audioManager = (() => {
         return true;
     }
 
+    // Downloads and decodes the background music.
     async function loadMusic() {
         if (musicBuffer) {
             return musicBuffer;
@@ -187,6 +194,7 @@ const audioManager = (() => {
         if (!ctx) {
             return null;
         }
+        // Cache the promise so the track is decoded only once.
         musicLoadPromise = fetch(musicUrl)
             .then((response) => {
                 if (!response.ok) {
@@ -209,6 +217,7 @@ const audioManager = (() => {
         return musicLoadPromise;
     }
 
+    // Cancels the pending music crossfade timer.
     function clearCrossfadeTimer() {
         if (musicCrossfadeTimer !== null) {
             clearTimeout(musicCrossfadeTimer);
@@ -216,17 +225,20 @@ const audioManager = (() => {
         }
     }
 
+    // Schedules the next smooth music loop.
     function scheduleCrossfade() {
         if (!musicPlaying || !musicBuffer) {
             return;
         }
         clearCrossfadeTimer();
+        // Begin the overlap early enough for both track copies to be heard.
         const crossfade = Math.min(musicCrossfadeDuration, musicBuffer.duration / 4);
         const position = getCurrentMusicPosition();
         const delay = Math.max(0.1, musicBuffer.duration - position - crossfade);
         musicCrossfadeTimer = setTimeout(crossfadeMusic, delay * 1000);
     }
 
+    // Calculates the current position in the music track.
     function getCurrentMusicPosition() {
         if (!musicPlaying || !audioContext) {
             return musicPosition;
@@ -237,6 +249,7 @@ const audioManager = (() => {
         );
     }
 
+    // Starts music playback from a selected position.
     function startMusicSource(offset = 0) {
         if (!musicBuffer || !musicRequested) {
             return;
@@ -248,6 +261,7 @@ const audioManager = (() => {
         clearCrossfadeTimer();
         const source = ctx.createBufferSource();
         const gain = ctx.createGain();
+        // Keep the starting position safely inside the decoded track.
         const safeOffset = Math.min(Math.max(0, offset), Math.max(0, musicBuffer.duration - 0.05));
         source.buffer = musicBuffer;
         gain.gain.setValueAtTime(1, ctx.currentTime);
@@ -268,6 +282,7 @@ const audioManager = (() => {
         scheduleCrossfade();
     }
 
+    // Crossfades from the ending track into a new track.
     function crossfadeMusic() {
         if (!musicPlaying || !musicBuffer || muted || !musicRequested) {
             return;
@@ -277,6 +292,7 @@ const audioManager = (() => {
             return;
         }
         const crossfade = Math.min(musicCrossfadeDuration, musicBuffer.duration / 4);
+        // Start a new copy at zero while fading out the old copy.
         const oldSource = activeMusicSource;
         const oldGain = activeMusicGain;
         const nextSource = ctx.createBufferSource();
@@ -310,6 +326,7 @@ const audioManager = (() => {
         scheduleCrossfade();
     }
 
+    // Creates a short synthesized tone effect.
     function playTone(startFrequency, endFrequency, duration, type = "square", level = 0.08) {
         if (muted) {
             return;
@@ -334,6 +351,7 @@ const audioManager = (() => {
         oscillator.stop(now + duration);
     }
 
+    // Creates a short synthesized noise effect.
     function playNoise(duration = 0.08, level = 0.06) {
         if (muted) {
             return;
@@ -363,12 +381,13 @@ const audioManager = (() => {
         source.start(now);
     }
 
+    // Plays the sound assigned to a gameplay event.
     function play(effect) {
         if (muted) {
             return;
         }
 
-        // Play custom .wav buffer if mapped
+        // Prefer a loaded custom sound file when one is available.
         if (Object.prototype.hasOwnProperty.call(sfxPaths, effect)) {
             const effectGain = sfxVolumes[effect] ?? 1.0;
             const cachedBuffer = sfxBuffers.get(effect);
@@ -376,7 +395,7 @@ const audioManager = (() => {
                 playBuffer(cachedBuffer, effectGain);
                 return;
             }
-            // Load on demand if first interaction happened before preload completed
+            // Load on demand if the first interaction beats preloading.
             loadSfxBuffer(effect).then((buffer) => {
                 if (buffer) {
                     playBuffer(buffer, effectGain);
@@ -385,7 +404,7 @@ const audioManager = (() => {
             return;
         }
 
-        // Fallback synth effects for sounds without custom .wav files yet
+        // Use generated tones when no custom sound file exists.
         switch (effect) {
             case "hit":
                 playTone(150, 70, 0.06, "square", 0.04);
@@ -411,6 +430,7 @@ const audioManager = (() => {
         }
     }
 
+    // Starts background music after user interaction.
     function startMusic() {
         musicRequested = true;
         if (muted) {
@@ -429,6 +449,7 @@ const audioManager = (() => {
         });
     }
 
+    // Stops and resets the background music.
     function stopMusic() {
         musicRequested = false;
         clearCrossfadeTimer();
@@ -450,6 +471,7 @@ const audioManager = (() => {
         musicPosition = 0;
     }
 
+    // Pauses audio while preserving the current music position.
     function pauseMusic() {
         if (!musicPlaying) {
             return;
@@ -461,6 +483,7 @@ const audioManager = (() => {
         }
     }
 
+    // Resumes music after gameplay is unpaused.
     function resumeMusic() {
         if (!muted) {
             ensureAudioContext();
@@ -475,6 +498,7 @@ const audioManager = (() => {
         }
     }
 
+    // Turns all audio on or off and saves the preference.
     function setMuted(nextMuted) {
         muted = nextMuted;
         updateMusicVolume();
@@ -494,6 +518,7 @@ const audioManager = (() => {
         }
     }
 
+    // Changes and saves the master volume.
     function setVolume(nextVolume) {
         volume = Math.min(1, Math.max(0, nextVolume));
         updateMusicVolume();
@@ -522,16 +547,19 @@ const audioManager = (() => {
    PART 3: SPRITE AND ASSET LOADING
    Loads player, enemy, effect, pickup, and environment assets.
    ============================================================ */
+// Creates an image from a sprite asset path.
 function loadSprite(src) {
     const img = new Image();
     img.src = src;
     return img;
 }
 
+// Checks whether an image finished loading successfully.
 function isSpriteReady(img) {
     return Boolean(img && img.complete && img.naturalWidth !== 0);
 }
 
+// Selects the current frame from an animation list.
 function getFrameFromList(frameList, fps = 8, offset = 0) {
     const ready = frameList.filter(isSpriteReady);
     if (ready.length === 0) return null;
@@ -721,6 +749,7 @@ const allowedMovementKeys = new Set([
    Converts movement vectors into 8-direction facing values and
    keeps the player aimed toward the nearest enemy.
    ============================================================ */
+// Converts movement values into one of eight directions.
 function getDirection8FromVector(dx, dy) {
     if (Math.hypot(dx, dy) <= 0.05) {
         return null;
@@ -741,6 +770,7 @@ function getDirection8FromVector(dx, dy) {
     return dirs[index];
 }
 
+// Points the player toward the nearest enemy.
 function updateAimFacing() {
     const target = findNearestEnemy();
     if (target) {
@@ -756,6 +786,7 @@ function updateAimFacing() {
    Switches menu screens, validates gameplay access, updates the
    camera viewport, and resizes the canvas without distortion.
    ============================================================ */
+// Fits the Canvas and camera to the available screen space.
 function resizeCanvas() {
     if (!canvasFrame) {
         return;
@@ -782,6 +813,7 @@ function resizeCanvas() {
     }
 }
 
+// Shows one application screen and hides the others.
 function showScreen(screenId) {
     screens.forEach((screen) => {
         const isSelected = screen.id === screenId;
@@ -832,6 +864,7 @@ function showScreen(screenId) {
    Saves usernames and completed runs using browser localStorage,
    validates stored data, merges duplicate names, and renders ranks.
    ============================================================ */
+// Finds the current player's best saved score.
 function getPersonalBestForUsername() {
     const entry = getLeaderboard().find(
         (record) => record.username.toLowerCase() === currentUsername.toLowerCase()
@@ -839,10 +872,12 @@ function getPersonalBestForUsername() {
     return entry ? entry.score : score;
 }
 
+// Formats a score as a six-digit display value.
 function formatScore(value) {
     return String(value).padStart(6, "0");
 }
 
+// Retrieves the saved username from local storage.
 function getSavedUsername() {
     try {
         return (localStorage.getItem("biohazardUsername") || "").slice(0, 16);
@@ -851,13 +886,16 @@ function getSavedUsername() {
     }
 }
 
+// Loads, validates, and merges leaderboard records.
 function getLeaderboard() {
     try {
+        // Convert saved text back into an array of records.
         const parsed = JSON.parse(localStorage.getItem("biohazardLeaderboard") || "[]");
         if (!Array.isArray(parsed)) {
             return [];
         }
 
+        // Keep only records with the fields needed by the leaderboard.
         const records = parsed
             .filter((entry) =>
                 entry &&
@@ -873,6 +911,7 @@ function getLeaderboard() {
             }))
             .filter((entry) => entry.username);
 
+        // Merge names such as "Alex" and "alex" into one best record.
         const uniqueRecords = new Map();
         records.forEach((entry) => {
             const key = entry.username.toLowerCase();
@@ -888,12 +927,14 @@ function getLeaderboard() {
     }
 }
 
+// Saves the completed run and checks for a personal best.
 function saveLeaderboardEntry() {
     if (runSubmitted) {
         return { personalBest: false, record: null };
     }
     runSubmitted = true;
 
+    // Load the existing records before adding this completed run.
     const leaderboard = getLeaderboard();
     const normalizedName = currentUsername.toLowerCase();
     const existingIndex = leaderboard.findIndex(
@@ -916,6 +957,7 @@ function saveLeaderboardEntry() {
         leaderboard.push(record);
     }
 
+    // Sort highest score first, then use kills as a tiebreaker.
     leaderboard.sort((a, b) => b.score - a.score || b.kills - a.kills);
 
     try {
@@ -927,6 +969,7 @@ function saveLeaderboardEntry() {
     return { personalBest: isPersonalBest, record };
 }
 
+// Renders the top ten leaderboard records.
 function renderLeaderboard() {
     if (!leaderboardList) {
         return;
@@ -972,6 +1015,7 @@ function renderLeaderboard() {
    PART 8: RUN LIFECYCLE AND PAUSE CONTROL
    Starts, resets, stops, restarts, pauses, and resumes a run.
    ============================================================ */
+// Resets all run data and starts gameplay.
 function startGame() {
     player.x = world.width / 2;
     player.y = world.height / 2;
@@ -1026,6 +1070,7 @@ function startGame() {
     }
 }
 
+// Stops the game loop and resets active controls.
 function stopGame() {
     gameIsRunning = false;
     isPaused = false;
@@ -1036,6 +1081,7 @@ function stopGame() {
     }
 }
 
+// Toggles or sets the gameplay pause state.
 function togglePause(forcePause) {
     if (levelUpPending || document.querySelector("#gameplay").hidden) {
         return;
@@ -1074,15 +1120,18 @@ function togglePause(forcePause) {
    Runs the frame-by-frame update cycle for movement, survival,
    enemies, combat, experience, and rendering.
    ============================================================ */
+// Updates and draws the game once per animation frame.
 function gameLoop(currentTime) {
     if (!gameIsRunning) {
         animationFrameId = null;
         return;
     }
 
+    // Convert milliseconds between frames into seconds for time-based movement.
     const deltaTime = previousTime === 0 ? 0 : Math.min((currentTime - previousTime) / 1000, 0.1);
     previousTime = currentTime;
     visualTime += deltaTime;
+    // Update each system, then render the new state.
     updatePlayer(deltaTime);
     updateSurvival(deltaTime);
     updateEnemies(deltaTime);
@@ -1107,6 +1156,7 @@ function gameLoop(currentTime) {
    Handles keyboard/touch movement, world boundaries, aiming,
    and camera-follow behavior.
    ============================================================ */
+// Reads movement input and moves the player.
 function updatePlayer(deltaTime) {
     let horizontalDirection = 0;
     let verticalDirection = 0;
@@ -1124,12 +1174,14 @@ function updatePlayer(deltaTime) {
         verticalDirection += 1;
     }
 
+    // Normalize diagonals so moving two ways is not twice as fast.
     if (horizontalDirection !== 0 && verticalDirection !== 0) {
         const diagonalLength = Math.sqrt(2);
         horizontalDirection /= diagonalLength;
         verticalDirection /= diagonalLength;
     }
 
+    // Use touch input only when no keyboard direction is being held.
     if (joystick.active && horizontalDirection === 0 && verticalDirection === 0) {
         horizontalDirection = joystick.dx;
         verticalDirection = joystick.dy;
@@ -1146,11 +1198,13 @@ function updatePlayer(deltaTime) {
         }
     }
 
+    // Apply time-based movement to the player's world position.
     player.x += horizontalDirection * player.speed * deltaTime;
     player.y += verticalDirection * player.speed * deltaTime;
 
     const halfWidth = player.width / 2;
     const halfHeight = player.height / 2;
+    // Clamp the player so they cannot leave the world.
     player.x = Math.max(halfWidth, Math.min(world.width - halfWidth, player.x));
     player.y = Math.max(halfHeight, Math.min(world.height - halfHeight, player.y));
 
@@ -1158,6 +1212,7 @@ function updatePlayer(deltaTime) {
     updateCamera();
 }
 
+// Keeps the camera centered on the player inside the map.
 function updateCamera() {
     camera.x = Math.max(0, Math.min(world.width - camera.viewWidth, player.x - camera.viewWidth / 2));
     camera.y = Math.max(0, Math.min(world.height - camera.viewHeight, player.y - camera.viewHeight / 2));
@@ -1167,6 +1222,7 @@ function updateCamera() {
    PART 11: SURVIVAL, SCORING, AND TIME EVENTS
    Tracks the survival timer, minute bonuses, and boss schedule.
    ============================================================ */
+// Updates survival time, score bonuses, and boss timing.
 function updateSurvival(deltaTime) {
     survivalTime += deltaTime;
     const completedMinutes = Math.floor(survivalTime / 60);
@@ -1190,7 +1246,9 @@ function updateSurvival(deltaTime) {
    Creates enemy waves, moves enemies toward the player, applies
    contact damage, and removes defeated enemies.
    ============================================================ */
+// Moves enemies and applies contact damage.
 function updateEnemies(deltaTime) {
+    // Count down until the next regular enemy spawn.
     enemySpawnTimer -= deltaTime;
     if (enemySpawnTimer <= 0) {
         spawnEnemy();
@@ -1199,16 +1257,19 @@ function updateEnemies(deltaTime) {
 
     player.damageCooldown = Math.max(0, player.damageCooldown - deltaTime);
 
+    // Move every enemy toward the player's current position.
     enemies.forEach((enemy) => {
         const distanceX = player.x - enemy.x;
         const distanceY = player.y - enemy.y;
         const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
 
         if (distance > 0) {
+            // Divide by distance to turn the offset into a unit direction.
             enemy.x += (distanceX / distance) * enemy.speed * deltaTime;
             enemy.y += (distanceY / distance) * enemy.speed * deltaTime;
         }
 
+        // Treat the player and enemy as circles for simple collision detection.
         if (distance < enemy.radius + player.width / 2 && player.damageCooldown === 0) {
             player.health = Math.max(0, player.health - enemy.damage);
             player.damageCooldown = 0.75;
@@ -1225,7 +1286,9 @@ function updateEnemies(deltaTime) {
     removeDefeatedEnemies();
 }
 
+// Creates an enemy outside the visible camera area.
 function spawnEnemy(type = chooseEnemyType()) {
+    // Pick one of the four edges around the visible camera area.
     const side = Math.floor(Math.random() * 4);
     const padding = 36;
     let x = player.x;
@@ -1246,6 +1309,7 @@ function spawnEnemy(type = chooseEnemyType()) {
     }
 
     const enemyType = enemyTypes[type];
+    // Increase enemy strength as the player survives longer.
     const difficultyMultiplier = 1 + survivalTime / 120;
     enemies.push({
         id: nextEnemyId,
@@ -1263,6 +1327,7 @@ function spawnEnemy(type = chooseEnemyType()) {
     nextEnemyId += 1;
 }
 
+// Chooses an enemy type based on time and randomness.
 function chooseEnemyType() {
     const roll = Math.random();
 
@@ -1275,6 +1340,7 @@ function chooseEnemyType() {
     return "zombie";
 }
 
+// Removes defeated enemies and awards score and experience.
 function removeDefeatedEnemies() {
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
         if (enemies[index].health <= 0) {
@@ -1316,6 +1382,7 @@ function removeDefeatedEnemies() {
    Finds the nearest enemy, fires projectiles, applies damage,
    removes projectiles, and cleans up visual effects.
    ============================================================ */
+// Updates automatic firing, projectiles, and hit effects.
 function updateCombat(deltaTime) {
     handgunCooldown = Math.max(0, handgunCooldown - deltaTime);
 
@@ -1326,6 +1393,7 @@ function updateCombat(deltaTime) {
         }
     }
 
+    // Fire automatically whenever the weapon cooldown reaches zero.
     if (handgunCooldown === 0) {
         const target = findNearestEnemy();
         if (target !== null) {
@@ -1334,6 +1402,7 @@ function updateCombat(deltaTime) {
         }
     }
 
+    // Move bullets and check each one against every enemy.
     projectiles.forEach((projectile) => {
         projectile.x += projectile.velocityX * deltaTime;
         projectile.y += projectile.velocityY * deltaTime;
@@ -1344,6 +1413,7 @@ function updateCombat(deltaTime) {
             const distanceY = projectile.y - enemy.y;
             const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
 
+            // A hit is registered when the two circular bounds overlap.
             if (!projectile.hit && distance < projectile.radius + enemy.radius) {
                 enemy.health -= projectile.damage;
                 projectile.hit = true;
@@ -1353,6 +1423,7 @@ function updateCombat(deltaTime) {
         });
     });
 
+    // Remove expired or already-hit bullets from the array.
     for (let index = projectiles.length - 1; index >= 0; index -= 1) {
         if (projectiles[index].life <= 0 || projectiles[index].hit) {
             projectiles.splice(index, 1);
@@ -1371,10 +1442,12 @@ function updateCombat(deltaTime) {
     removeDefeatedEnemies();
 }
 
+// Finds the closest enemy within weapon range.
 function findNearestEnemy() {
     let nearestEnemy = null;
     let nearestDistance = handgun.range;
 
+    // Keep the closest target found within the handgun's range.
     enemies.forEach((enemy) => {
         const distanceX = player.x - enemy.x;
         const distanceY = player.y - enemy.y;
@@ -1389,9 +1462,11 @@ function findNearestEnemy() {
     return nearestEnemy;
 }
 
+// Fires projectiles toward the selected enemy.
 function fireHandgun(target) {
     const distanceX = target.x - player.x;
     const distanceY = target.y - player.y;
+    // atan2 gives the angle from the player to the target.
     const angle = Math.atan2(distanceY, distanceX);
 
     const aimDir8 = getDirection8FromVector(distanceX, distanceY);
@@ -1403,6 +1478,7 @@ function fireHandgun(target) {
     player.fireTimer = 0.14;
     audioManager.play("shoot");
 
+    // Spread multiple projectiles slightly around the target angle.
     for (let index = 0; index < handgun.projectileCount; index += 1) {
         const spread = (index - (handgun.projectileCount - 1) / 2) * 0.12;
         const shotAngle = angle + spread;
@@ -1424,7 +1500,9 @@ function fireHandgun(target) {
    Collects XP, opens upgrade choices, applies selected upgrades,
    and updates the HUD progress indicators.
    ============================================================ */
+// Collects experience and triggers level-ups.
 function updateExperience() {
+    // Collect every orb close enough to the player.
     for (let index = experienceOrbs.length - 1; index >= 0; index -= 1) {
         const orb = experienceOrbs[index];
         const distanceX = player.x - orb.x;
@@ -1438,6 +1516,7 @@ function updateExperience() {
         }
     }
 
+    // Convert enough collected XP into the next player level.
     if (player.experience >= player.experienceToNextLevel) {
         player.experience -= player.experienceToNextLevel;
         player.level += 1;
@@ -1448,6 +1527,7 @@ function updateExperience() {
     updateExperienceBar();
 }
 
+// Updates the experience and level HUD.
 function updateExperienceBar() {
     const experienceBar = document.querySelector("#experience-bar");
     const levelValue = document.querySelector("#level-value");
@@ -1458,6 +1538,7 @@ function updateExperienceBar() {
     experienceValue.textContent = `${player.experience}/${player.experienceToNextLevel}`;
 }
 
+// Pauses gameplay and displays upgrade choices.
 function openLevelUpOverlay() {
     if (levelUpPending) {
         return;
@@ -1471,15 +1552,18 @@ function openLevelUpOverlay() {
     document.querySelector("#level-up-overlay").hidden = false;
 }
 
+// Hides the level-up upgrade overlay.
 function closeLevelUpOverlay() {
     levelUpPending = false;
     document.querySelector("#level-up-overlay").hidden = true;
 }
 
+// Displays random upgrades and handles the selection.
 function renderUpgradeChoices() {
     const upgradeOptions = document.querySelector("#upgrade-options");
     upgradeOptions.replaceChildren();
 
+    // Present three different choices for the player to select.
     getRandomUpgrades(3).forEach((upgrade) => {
         const option = document.createElement("button");
         option.type = "button";
@@ -1498,11 +1582,13 @@ function renderUpgradeChoices() {
     });
 }
 
+// Returns a random number of available upgrades.
 function getRandomUpgrades(amount) {
     return [...upgrades].sort(() => Math.random() - 0.5).slice(0, amount);
 }
 
 /* --- HUD and health updates --- */
+// Updates the player health bar and text.
 function updateHealthBar() {
     const healthBar = document.querySelector("#health-bar");
     const healthValue = document.querySelector("#health-value");
@@ -1512,6 +1598,7 @@ function updateHealthBar() {
 }
 
 /* --- Game over statistics and leaderboard submission --- */
+// Saves the run and displays final statistics.
 function finishGame() {
     gameIsRunning = false;
     resetJoystick();
@@ -1529,12 +1616,14 @@ function finishGame() {
     showScreen("game-over");
 }
 
+// Formats survival seconds as minutes and seconds.
 function formatSurvivalTime() {
     const minutes = Math.floor(survivalTime / 60);
     const seconds = Math.floor(survivalTime % 60);
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+// Updates the live gameplay statistics.
 function updateScoreboard() {
     document.querySelector("#survival-time").textContent = formatSurvivalTime();
     document.querySelector("#score-value").textContent = String(score).padStart(6, "0");
@@ -1547,7 +1636,9 @@ function updateScoreboard() {
    Draws the urban map, camera viewport, pickups, enemies,
    projectiles, impact effects, and the animated player.
    ============================================================ */
+// Draws the complete visible game scene.
 function drawGame() {
+    // Shift world coordinates so the camera stays centered on the player.
     context.save();
     context.translate(-camera.x, -camera.y);
     drawUrbanEnvironment();
@@ -1559,6 +1650,7 @@ function drawGame() {
     context.restore();
 }
 
+// Draws one animated experience pickup.
 function drawExperienceOrb(orb) {
     const pulse = Math.sin(visualTime * 8 + orb.x) * 1.5;
     if (isSpriteReady(sprites.itemHerbGreen)) {
@@ -1572,6 +1664,7 @@ function drawExperienceOrb(orb) {
     context.fillRect(orb.x - 2, orb.y - 2, 4, 4);
 }
 
+// Draws a blood or explosion impact effect.
 function drawImpactEffect(effect) {
     if (effect.kind === "explosion") {
         const expSprite = getFrameFromList(sprites.fxExplosion, 12);
@@ -1593,6 +1686,7 @@ function drawImpactEffect(effect) {
     context.strokeRect(effect.x - radius, effect.y - radius, radius * 2, radius * 2);
 }
 
+// Draws the visible map, floor, roads, and scenery.
 function drawUrbanEnvironment() {
     const { width, height } = world;
     const minX = camera.x;
@@ -1614,6 +1708,7 @@ function drawUrbanEnvironment() {
     const innerMinY = Math.max(78, Math.floor(minY));
     const innerMaxY = Math.min(height - 78, Math.ceil(maxY));
 
+    // Draw only the portion of the map currently visible to the camera.
     if (innerMaxX > innerMinX && innerMaxY > innerMinY) {
         if (isSpriteReady(sprites.tileFloor)) {
             const tileSize = 224;
@@ -1625,6 +1720,7 @@ function drawUrbanEnvironment() {
             context.rect(innerMinX, innerMinY, innerMaxX - innerMinX, innerMaxY - innerMinY);
             context.clip();
 
+            // Repeat the floor texture across the visible map area.
             for (let tx = startX; tx < innerMaxX; tx += tileSize) {
                 for (let ty = startY; ty < innerMaxY; ty += tileSize) {
                     context.drawImage(sprites.tileFloor, tx, ty, tileSize, tileSize);
@@ -1686,6 +1782,7 @@ function drawUrbanEnvironment() {
     }
 }
 
+// Draws road markings inside the camera viewport.
 function drawRoadMarkings(minX, maxX, minY, maxY) {
     context.fillStyle = "#687254";
     if (minY <= world.height / 2 + 4 && maxY >= world.height / 2 - 4) {
@@ -1704,6 +1801,7 @@ function drawRoadMarkings(minX, maxX, minY, maxY) {
     }
 }
 
+// Draws a building sprite or fallback shape.
 function drawBuilding(x, y, width, height) {
     if (isSpriteReady(sprites.propBuilding)) {
         context.drawImage(sprites.propBuilding, x, y, width, height);
@@ -1718,6 +1816,7 @@ function drawBuilding(x, y, width, height) {
     context.fillRect(x + 26, y + 24, 6, 6);
 }
 
+// Draws a streetlight sprite or fallback shape.
 function drawStreetLight(x, y) {
     if (isSpriteReady(sprites.propStreetLight)) {
         context.drawImage(sprites.propStreetLight, x - 14, y - 10, 28, 38);
@@ -1730,6 +1829,7 @@ function drawStreetLight(x, y) {
     context.fillRect(x - 4, y - 6, 8, 5);
 }
 
+// Draws debris sprites or fallback shapes.
 function drawDebris(x, y) {
     if (isSpriteReady(sprites.propDebris)) {
         context.drawImage(sprites.propDebris, x - 12, y - 10, 28, 22);
@@ -1740,6 +1840,7 @@ function drawDebris(x, y) {
     context.fillRect(x + 8, y - 5, 5, 10);
 }
 
+// Draws the player sprite and visual feedback.
 function drawPlayer() {
     const { x, y, width, height, facing8 } = player;
     const bob = player.isMoving ? Math.sin(visualTime * 12) * 2 : 0;
@@ -1777,8 +1878,10 @@ function drawPlayer() {
     context.restore();
 }
 
+// Draws an enemy when it is inside the camera viewport.
 function drawEnemy(enemy) {
     const { x, y, radius } = enemy;
+    // Skip enemies outside the viewport to reduce drawing work.
     if (
         x + radius * 2.5 < camera.x ||
         x - radius * 2.5 > camera.x + camera.viewWidth ||
@@ -1792,6 +1895,7 @@ function drawEnemy(enemy) {
     context.fillRect(x - radius, y + radius - 1, radius * 2, 5);
 
     let enemySprite = null;
+    // Select animation frames based on the enemy type.
     if (enemy.type === "hound") {
         enemySprite = getFrameFromList(sprites.houndRun, 9, enemy.id);
     } else if (enemy.type === "mutant") {
@@ -1835,6 +1939,7 @@ function drawEnemy(enemy) {
     context.restore();
 }
 
+// Draws one projectile or muzzle-flash sprite.
 function drawProjectile(projectile) {
     const flashSprite = getFrameFromList(sprites.fxFlash, 16);
     if (isSpriteReady(flashSprite)) {
@@ -1855,6 +1960,7 @@ function drawProjectile(projectile) {
    Tracks touch input, clamps joystick movement, and resets
    the virtual stick on touch end or cancellation.
    ============================================================ */
+// Resets the virtual joystick and its movement values.
 function resetJoystick() {
     joystick.active = false;
     joystick.touchId = null;
@@ -1868,16 +1974,19 @@ function resetJoystick() {
     joystickStick.style.transform = "translate(0px, 0px)";
 }
 
+// Converts finger movement into joystick direction.
 function updateJoystickPosition(clientX, clientY) {
     const deltaX = clientX - joystick.originX;
     const deltaY = clientY - joystick.originY;
     const distance = Math.hypot(deltaX, deltaY);
+    // Limit the stick to its circular movement area.
     const clampedDistance = Math.min(distance, joystick.maxRadius);
     const angle = Math.atan2(deltaY, deltaX);
 
     const stickX = Math.cos(angle) * clampedDistance;
     const stickY = Math.sin(angle) * clampedDistance;
 
+    // Convert the distance into a direction strength from 0 to 1.
     const normalizedMagnitude = clampedDistance / joystick.maxRadius;
     if (normalizedMagnitude < 0.12) {
         joystick.dx = 0;
@@ -1900,6 +2009,7 @@ canvasFrame.addEventListener("touchstart", (event) => {
         return;
     }
 
+    // Use the first touch as the active movement finger.
     const touch = event.changedTouches[0];
     const frameRect = canvasFrame.getBoundingClientRect();
 
@@ -1935,6 +2045,7 @@ canvasFrame.addEventListener("touchmove", (event) => {
     }
 }, { passive: false });
 
+// Releases the joystick when the tracked touch ends.
 function handleTouchEnd(event) {
     if (!joystick.active) {
         return;
