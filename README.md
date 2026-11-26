@@ -21,4 +21,4 @@ Set in a quarantined city overrun by infected creatures, players must survive en
 
 ## Running the game
 
-Open `index.html` in a modern browser. Scores and usernames are saved locally in that browser; there is no online or shared leaderboard.
+Open `index.html` in a modern browser or visit the livesite link. Scores and usernames are saved locally in that browser; there is no online or shared leaderboard.
